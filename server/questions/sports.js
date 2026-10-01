@@ -1,0 +1,72 @@
+(function () {
+  const q = Trench.q;
+  Trench.add('Sports',
+
+q('Name an NFL team, current or former',
+  'Cowboys/Dallas Cowboys; Patriots/New England Patriots/Pats; Packers/Green Bay Packers; Steelers/Pittsburgh Steelers; Giants/New York Giants; 49ers/San Francisco 49ers/Niners; Eagles/Philadelphia Eagles; Chiefs/Kansas City Chiefs',
+  '',
+  'Bears; Broncos; Dolphins; Raiders; Seahawks; Ravens; Bills; Jets; Saints; Vikings; Rams; Chargers; Bengals; Colts; Panthers; Falcons; Buccaneers/Bucs',
+  'Lions; Browns; Commanders; Cardinals; Titans; Texans; Jaguars/Jags',
+  'Redskins/Washington Redskins; Oilers/Houston Oilers; Washington Football Team; Boston Patriots; St. Louis Rams/St Louis Rams; Los Angeles Raiders; Baltimore Colts; Cleveland Rams; Phoenix Cardinals; St. Louis Cardinals/St Louis Cardinals; San Diego Chargers; Tennessee Oilers',
+  'Frankford Yellow Jackets; Decatur Staleys/Staleys; Duluth Eskimos; Canton Bulldogs; Boston Yanks; Orange Tornadoes; Rock Island Independents; Pottsville Maroons; Providence Steam Roller; Dayton Triangles; Akron Pros; Hammond Pros; Racine Legion; Kenosha Maroons; Louisville Colonels; Brooklyn Lions; Staten Island Stapletons; Portsmouth Spartans; Cincinnati Reds; Brooklyn Tigers; Boston Bulldogs; New York Yanks; Dallas Texans; Detroit Heralds'),
+
+q('Name an NBA team, current or former',
+  'Lakers/Los Angeles Lakers; Celtics/Boston Celtics; Bulls/Chicago Bulls; Warriors/Golden State Warriors; Knicks/New York Knicks; Heat/Miami Heat',
+  '',
+  'Spurs; Nets/Brooklyn Nets; Mavericks/Mavs; Rockets; Suns; Clippers; 76ers/Sixers; Bucks; Raptors; Nuggets; Thunder; Cavaliers/Cavs; Hawks; Pistons; Pacers; Grizzlies; Timberwolves/Wolves; Kings',
+  'Hornets; Magic; Wizards; Pelicans; Jazz; Trail Blazers/Blazers',
+  'SuperSonics/Sonics/Seattle SuperSonics; Bobcats/Charlotte Bobcats; Bullets/Washington Bullets; Vancouver Grizzlies; New Jersey Nets; Kansas City Kings; Minneapolis Lakers; Syracuse Nationals; Rochester Royals; Buffalo Braves; San Diego Clippers; New Orleans Hornets; San Diego Rockets; New Orleans Jazz; Cincinnati Royals; St. Louis Hawks; Philadelphia Warriors; San Francisco Warriors',
+  'Anderson Packers; Waterloo Hawks; Sheboygan Red Skins; Tri-Cities Blackhawks; Indianapolis Olympians; Fort Wayne Pistons; Baltimore Bullets; Chicago Stags; Cleveland Rebels; Detroit Falcons; Pittsburgh Ironmen; Providence Steamrollers; St. Louis Bombers; Toronto Huskies; Washington Capitols; Indianapolis Jets; Chicago Packers; Chicago Zephyrs'),
+
+q('Name an MLB team, current or former',
+  'Yankees/New York Yankees; Red Sox/Boston Red Sox; Dodgers/Los Angeles Dodgers; Cubs/Chicago Cubs; Giants/San Francisco Giants; Mets/New York Mets; Cardinals/St. Louis Cardinals/St Louis Cardinals; Braves/Atlanta Braves',
+  '',
+  'Phillies; Astros; Padres; Mariners; Rangers; Blue Jays; Angels; Athletics/A\'s/Oakland Athletics; White Sox; Tigers; Reds; Pirates; Orioles; Brewers; Rockies; Royals; Twins; Diamondbacks/D-backs; Nationals; Guardians; Rays/Tampa Bay Rays; Marlins',
+  'Indians/Cleveland Indians; Expos/Montreal Expos; Senators/Washington Senators; Browns/St. Louis Browns/St Louis Browns; Devil Rays/Tampa Bay Devil Rays; Brooklyn Dodgers; New York Giants; Seattle Pilots; Kansas City Athletics; Florida Marlins; Anaheim Angels; California Angels; Cleveland Spiders; Boston Braves; Milwaukee Braves',
+  'Houston Colt .45s/Colt .45s; Philadelphia Athletics; Brooklyn Robins; Cleveland Naps; Boston Beaneaters; Cincinnati Redlegs; Brooklyn Superbas; Brooklyn Bridegrooms; Louisville Colonels; Baltimore Terrapins; Pittsburgh Alleghenys; Providence Grays; Troy Trojans; Worcester Ruby Legs; Cincinnati Red Stockings; Hartford Dark Blues; Buffalo Bisons; St. Louis Maroons; Los Angeles Angels of Anaheim; Boston Americans; Boston Red Stockings; Chicago White Stockings; Brooklyn Atlantics; New York Highlanders',
+  'Altoona Pride; Kansas City Cowboys; Syracuse Stars; Toledo Blue Stockings; Wilmington Quicksteps; Indianapolis Hoosiers; Richmond Virginians; Columbus Solons; Louisville Eclipse; Cleveland Blues; Detroit Wolverines; Milwaukee Grays; Cincinnati Outlaw Reds; Kansas City Packers; Pittsburgh Rebels; Newark Peppers; St. Louis Terriers; Brooklyn Tip-Tops; Chicago Whales; Buffalo Blues; Brooklyn Gladiators; Philadelphia Quakers; New York Gothams; New York Metropolitans; Washington Statesmen; Baltimore Canaries'),
+
+q('Name an NHL team, current or former',
+  'Bruins/Boston Bruins; Rangers/New York Rangers; Blackhawks/Chicago Blackhawks; Maple Leafs/Toronto Maple Leafs; Canadiens/Montreal Canadiens/Habs; Penguins/Pittsburgh Penguins; Red Wings/Detroit Red Wings',
+  '',
+  'Flyers; Oilers; Flames; Canucks; Avalanche; Kings; Sharks; Lightning; Capitals; Islanders; Devils; Stars; Blues; Wild; Panthers',
+  'Hurricanes; Predators; Jets; Golden Knights/Vegas Golden Knights; Kraken; Ducks; Coyotes/Arizona Coyotes; Senators; Sabres; Blue Jackets; Utah Mammoth',
+  'Whalers/Hartford Whalers; Nordiques/Quebec Nordiques; North Stars/Minnesota North Stars; Thrashers/Atlanta Thrashers; Atlanta Flames; Kansas City Scouts; Colorado Rockies; Cleveland Barons; Utah Hockey Club; Mighty Ducks/Mighty Ducks of Anaheim; Phoenix Coyotes; California Golden Seals/Golden Seals; Oakland Seals',
+  'Quebec Bulldogs; Montreal Wanderers; Montreal Maroons; Hamilton Tigers; Philadelphia Quakers; Brooklyn Americans; New York Americans; St. Louis Eagles; Pittsburgh Pirates; Toronto Arenas; Toronto St. Patricks; Toronto St Pats'),
+
+q('Name a professional golfer',
+  'Tiger Woods; Rory McIlroy; Jack Nicklaus; Arnold Palmer; Phil Mickelson',
+  '',
+  'Scottie Scheffler; Jordan Spieth; Dustin Johnson; Brooks Koepka; Justin Thomas; Jon Rahm; Bryson DeChambeau; Ben Hogan; Sam Snead; Gary Player; Tom Watson; Greg Norman; Seve Ballesteros; Lee Trevino; Fred Couples; John Daly; Rickie Fowler',
+  'Collin Morikawa; Xander Schauffele; Viktor Hovland; Patrick Cantlay; Tony Finau; Max Homa; Hideki Matsuyama; Adam Scott; Jason Day; Justin Rose; Sergio Garcia; Henrik Stenson; Bubba Watson; Zach Johnson; Jim Furyk; Davis Love III; Payne Stewart; Nick Faldo; Bernhard Langer; Ernie Els; Vijay Singh; Retief Goosen; Padraig Harrington; Lee Westwood; Ian Poulter; Colin Montgomerie; Tommy Fleetwood; Matt Fitzpatrick; Cameron Smith; Sahith Theegala; Wyndham Clark; Ludvig Aberg; Nelly Korda; Annika Sorenstam',
+  'Harold Varner III; Si Woo Kim; Sungjae Im; Tom Kim; Cameron Young; Sepp Straka; Keegan Bradley; Webb Simpson; Matt Kuchar; Gary Woodland; Kevin Na; Brandt Snedeker; Jason Dufner; Louis Oosthuizen; Charl Schwartzel; Trevor Immelman; Angel Cabrera; Mike Weir; Corey Pavin; Craig Stadler; Raymond Floyd; Hale Irwin; Tom Kite; Curtis Strange; Lanny Wadkins; Ben Crenshaw; Johnny Miller; Hubert Green; Larry Nelson; Mark O\'Meara; Nick Price; Ian Woosnam; Sandy Lyle; Jose Maria Olazabal; Bernard Gallacher',
+  'Walter Hagen; Gene Sarazen; Bobby Jones; Byron Nelson; Lloyd Mangrum; Jimmy Demaret; Cary Middlecoff; Julius Boros; Billy Casper; Gene Littler; Doug Ford; Tommy Bolt; Dow Finsterwald; Jerry Barber; Lew Worsham; Ralph Guldahl; Craig Wood; Horton Smith; Denny Shute; Tony Lema; Ken Venturi; Tommy Armour; Old Tom Morris; Young Tom Morris; Harry Vardon; Ted Ray; Willie Anderson; Francis Ouimet; Jerome Travers; Johnny McDermott; Chick Evans; Jim Barnes; Leo Diegel; Johnny Farrell; Olin Dutra; Sam Parks; Lawson Little; Henry Picard; Paul Runyan; Tommy Aaron; Bob Charles; Kel Nagle; Peter Thomson; Roberto De Vicenzo; Orville Moody',
+  { names: true }),
+
+q('Name an Olympic sport (summer or winter)',
+  'Swimming; Gymnastics; Track and field/Athletics; Basketball; Soccer/Football; Skiing; Figure skating',
+  '',
+  'Diving; Tennis; Boxing; Cycling; Rowing; Volleyball; Wrestling; Snowboarding; Hockey/Ice hockey; Curling; Golf; Archery; Fencing; Judo; Weightlifting; Rugby',
+  'Skeleton; Bobsled/Bobsleigh; Luge; Biathlon; Ski jumping; Speed skating; Short track; Table tennis; Badminton; Handball; Water polo; Triathlon; Modern pentathlon; Equestrian; Sailing; Canoeing; Kayaking; Surfing; Skateboarding; Sport climbing; Taekwondo; Shooting; Karate; BMX; Breaking; Baseball; Softball',
+  'Nordic combined; Cross-country skiing; Freestyle skiing; Moguls; Aerials; Ski cross; Slopestyle; Halfpipe; Snowboard cross; Artistic swimming/Synchronized swimming; Trampoline; Rhythmic gymnastics; Beach volleyball; Marathon swimming; Race walking; Decathlon; Heptathlon; Steeplechase; Alpine skiing; Ice dance; Pairs skating; Big air; Dressage; Eventing; Show jumping; Pole vault; Hammer throw; Discus; Javelin; Shot put; Triple jump; Marathon',
+  'Ski mountaineering; Tug of war; Polo; Cricket; Croquet; Rackets; Jeu de paume; Basque pelota/Pelota; Lacrosse; Roque; Motorboating; Live pigeon shooting; Rope climbing; Club swinging'),
+
+q('Name a Premier League club, current or former',
+  'Manchester United/Man United/Man U; Liverpool; Arsenal; Chelsea; Manchester City/Man City; Tottenham/Tottenham Hotspur/Spurs',
+  '',
+  'Everton; Newcastle/Newcastle United; West Ham/West Ham United; Aston Villa/Villa; Leicester/Leicester City; Leeds/Leeds United; Brighton; Wolves/Wolverhampton Wanderers; Crystal Palace/Palace; Fulham; Southampton',
+  'Brentford; Nottingham Forest/Forest; Bournemouth; Burnley; Sunderland; Watford; West Brom/West Bromwich Albion; Stoke/Stoke City; Swansea/Swansea City; Norwich/Norwich City; Sheffield United; Middlesbrough/Boro; Blackburn/Blackburn Rovers; Bolton/Bolton Wanderers; Hull/Hull City; Cardiff/Cardiff City; Huddersfield/Huddersfield Town; Birmingham/Birmingham City; Wigan/Wigan Athletic; QPR/Queens Park Rangers; Charlton/Charlton Athletic; Portsmouth/Pompey; Derby/Derby County; Coventry/Coventry City; Ipswich/Ipswich Town; Luton/Luton Town',
+  'Reading; Blackpool; Barnsley; Oldham/Oldham Athletic; Swindon/Swindon Town; Bradford/Bradford City; Wimbledon; Sheffield Wednesday/Sheffield Wed',
+  ''),
+
+q('Name a tennis grand slam singles champion, past or present',
+  'Roger Federer; Rafael Nadal; Novak Djokovic; Serena Williams; Venus Williams/Venus',
+  '',
+  'Andy Murray; Pete Sampras; Andre Agassi; Bjorn Borg; John McEnroe; Martina Navratilova; Steffi Graf; Maria Sharapova; Carlos Alcaraz; Jannik Sinner; Chris Evert; Billie Jean King; Arthur Ashe; Jimmy Connors',
+  'Ivan Lendl; Boris Becker; Stefan Edberg; Mats Wilander; Jim Courier; Lleyton Hewitt; Andy Roddick; Marat Safin; Gustavo Kuerten; Pat Rafter; Stan Wawrinka; Marin Cilic; Juan Martin del Potro; Dominic Thiem; Daniil Medvedev; Naomi Osaka; Simona Halep; Angelique Kerber; Ashleigh Barty; Iga Swiatek; Coco Gauff; Aryna Sabalenka; Elena Rybakina; Monica Seles; Lindsay Davenport; Justine Henin; Kim Clijsters; Jennifer Capriati; Martina Hingis; Emma Raducanu; Bianca Andreescu; Sofia Kenin; Jelena Ostapenko; Barbora Krejcikova; Madison Keys',
+  'Gaston Gaudio; Albert Costa; Carlos Moya; Thomas Johansson; Petr Korda; Richard Krajicek; Michael Stich; Goran Ivanisevic; Yevgeny Kafelnikov; Sergi Bruguera; Michael Chang; Thomas Muster; Andres Gomez; Johan Kriek; Vitas Gerulaitis; Guillermo Vilas; Ilie Nastase; Stan Smith; Rod Laver; Ken Rosewall; John Newcombe; Roy Emerson; Tony Roche; Lew Hoad; Jack Kramer; Don Budge; Fred Perry; Bill Tilden; Rene Lacoste; Jean Borotra; Henri Cochet; Margaret Court; Evonne Goolagong; Virginia Wade; Maureen Connolly; Althea Gibson; Helen Wills Moody; Suzanne Lenglen; Maria Bueno; Tracy Austin; Hana Mandlikova; Gabriela Sabatini; Arantxa Sanchez Vicario; Conchita Martinez; Mary Pierce; Amelie Mauresmo; Svetlana Kuznetsova; Anastasia Myskina; Flavia Pennetta; Francesca Schiavone; Li Na; Samantha Stosur; Petra Kvitova; Garbine Muguruza; Sloane Stephens',
+  'Tony Trabert; Vic Seixas; Ted Schroeder; Frank Sedgman; Pancho Gonzales; Dick Savitt; Jaroslav Drobny; Budge Patty; Neale Fraser; Alex Olmedo; Ashley Cooper; Mal Anderson; Chuck McKinley; Fred Stolle; Manuel Santana; Jan Kodes; Adriano Panatta; Roscoe Tanner; Mark Edmondson; Francoise Durr',
+  { names: true }),
+
+  );
+})();

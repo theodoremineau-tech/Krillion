@@ -1,0 +1,9 @@
+{
+  "name": "The Trench",
+  "short_name": "Trench",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#030d1a",
+  "theme_color": "#28a7ba",
+  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
