@@ -1,6 +1,6 @@
 // Trench game server: accounts, sessions, daily dives, grading, leaderboard.
 // Storage-agnostic: give it { get(key), set(key, value), del(key), list(prefix) }.
-import crypto from 'node:crypto';
+import { randomToken, randomHex, hashPw, safeEq } from './crypto.mjs';
 import './bank.mjs';
 
 const T = globalThis.Trench;
@@ -20,20 +20,14 @@ const USER_RE = /^[A-Za-z0-9_]{2,16}$/;
 const MAX_MISSES = 25;
 
 function err(status, message) { const e = new Error(message); e.status = status; return e; }
-const today = () => T.todayStr(SETTINGS.TZ);
 const diveNo = day => T.dayIndex(day) - T.dayIndex(SETTINGS.LAUNCH_DAY) + 1;
 const maxScore = () => SETTINGS.PER_DAY * T.MAX_PTS;
 
-function hashPw(pw, salt) { return crypto.scryptSync(pw, salt, 32).toString('hex'); }
-function safeEq(a, b) {
-  const x = Buffer.from(a, 'hex'), y = Buffer.from(b, 'hex');
-  return x.length === y.length && crypto.timingSafeEqual(x, y);
-}
-
 export function createGame(store, now = () => Date.now()) {
+  const today = () => T.todayStr(SETTINGS.TZ, now());
   // ---------- auth ----------
   async function newSession(userKey) {
-    const token = crypto.randomBytes(24).toString('base64url');
+    const token = randomToken(24);
     await store.set(`sessions/${token}`, { user: userKey, created: now() });
     return token;
   }
@@ -46,7 +40,7 @@ export function createGame(store, now = () => Date.now()) {
     }
     const key = username.toLowerCase();
     if (await store.get(`users/${key}`)) throw err(409, 'That name is taken. Log in instead, or pick another.');
-    const salt = crypto.randomBytes(16).toString('hex');
+    const salt = randomHex(16);
     await store.set(`users/${key}`, { username, salt, hash: hashPw(String(password), salt), created: now() });
     await store.set(`scores/${key}`, { username, days: {} });
     return { token: await newSession(key), user: { username } };

@@ -20,8 +20,9 @@
   const ZONES = [[0, 'Surface'], [200, 'Sunlight zone'], [1000, 'Twilight zone'], [4000, 'Midnight zone'], [6000, 'Abyssal zone'], [MAX_DEPTH + 1, 'Hadal zone']];
   const zoneFor = m => { if (m <= 0) return 'Surface'; for (let i = 1; i < ZONES.length; i++) if (m <= ZONES[i][0]) return ZONES[i][1]; return 'Hadal zone'; };
 
+  const PRACTICE = window.TRENCH_PRACTICE || null;   // practice build: in-page server, nothing saved
   let token = null;
-  try { token = localStorage.getItem('trench.token'); } catch (e) { /* storage blocked */ }
+  if (!PRACTICE) { try { token = localStorage.getItem('trench.token'); } catch (e) { /* storage blocked */ } }
   let me = null, st = null, board = null, boardTab = 'today', timer = null, runId = 0;
 
   // ---------- helpers ----------
@@ -50,6 +51,7 @@
   }
   function setToken(t) {
     token = t;
+    if (PRACTICE) return;
     try { if (t) localStorage.setItem('trench.token', t); else localStorage.removeItem('trench.token'); } catch (e) { /* ignore */ }
   }
   function prettyDay(d) {
@@ -106,7 +108,14 @@
     return h('header', { class: 'topbar' },
       h('button', { class: 'wordmark', type: 'button', onclick: () => homeScreen() }, 'The Trench'),
       h('div', { class: 'topbar-right' }, extra, soundButton(),
-        me ? h('button', { class: 'link-btn', type: 'button', onclick: logout }, 'Log out') : null));
+        PRACTICE ? h('button', { class: 'link-btn', type: 'button', onclick: practiceNewSet }, 'New set')
+          : me ? h('button', { class: 'link-btn', type: 'button', onclick: logout }, 'Log out') : null));
+  }
+  async function practiceNewSet() {
+    runId++; stopTimer();
+    PRACTICE.nextSet();
+    toast('Fresh set of prompts loaded.');
+    await homeScreen();
   }
   async function logout() {
     try { await api('POST', '/logout'); } catch (e) { /* ignore */ }
@@ -182,7 +191,8 @@
         h('div', { class: 'row-btns' },
           h('button', { class: 'btn primary', type: 'button', onclick: () => resultsScreen(d) }, 'See your dive'),
           shareButton(d)),
-        h('p', { class: 'fine' }, 'Next dive opens at midnight Eastern.'));
+        PRACTICE ? h('button', { class: 'btn ghost', type: 'button', onclick: practiceNewSet, style: 'margin-top:14px' }, 'Play a new set')
+          : h('p', { class: 'fine' }, 'Next dive opens at midnight Eastern.'));
     } else {
       const started = d && d.answers.length > 0 || st.current;
       hero = h('section', { class: 'lobby-hero' },
@@ -511,7 +521,8 @@
           h('div', { class: 'chips' }, tally),
           h('div', { class: 'row-btns' },
             shareButton(d),
-            h('button', { class: 'btn ghost', type: 'button', onclick: () => homeScreen() }, 'Depth chart'))),
+            h('button', { class: 'btn ghost', type: 'button', onclick: () => homeScreen() }, 'Depth chart'),
+            PRACTICE ? h('button', { class: 'btn ghost', type: 'button', onclick: practiceNewSet }, 'Play a new set') : null)),
         h('section', { class: 'review-wrap' }, h('h2', {}, 'Your dive'), list),
         crew)));
     if (fresh) { FX.countUp(num, 0, d.depth, 1600); FX.sound.start(); }
@@ -540,6 +551,13 @@
   // BOOT
   // =====================================================================
   (async function boot() {
+    if (PRACTICE) {
+      const r = await api('POST', '/signup', { username: 'You', password: 'practice', invite: PRACTICE.invite });
+      setToken(r.token); me = r.user;
+      const banner = h('div', { class: 'practice-banner', role: 'note' }, 'Practice mode. Nothing is saved: reload the page and it all resets.');
+      document.body.prepend(banner);
+      return homeScreen();
+    }
     if (!token) return authScreen('login');
     await homeScreen();
   })();

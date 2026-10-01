@@ -310,8 +310,8 @@
   }
 
   // ---------- Daily selection ----------
-  function todayStr(tz) {
-    return new Intl.DateTimeFormat('en-CA', { timeZone: tz || 'America/New_York' }).format(new Date());
+  function todayStr(tz, t) {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: tz || 'America/New_York' }).format(new Date(t == null ? Date.now() : t));
   }
   function dayIndex(dateStr) {
     const [y, m, d] = dateStr.split('-').map(Number);
