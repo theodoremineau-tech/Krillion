@@ -52,3 +52,5 @@ q('Name a thing',
 ```
 
 Then run `npm test`. It flags any answer that sits in two tiers or doesn't grade to its own tier. 152 prompts at 10 a day is about two weeks before anything repeats; the bank then reshuffles. Every dive stores its own prompt list, so adding prompts mid-day is safe.
+
+For the full picture (architecture, API, data model, known issues), see `HANDOFF.md`.

@@ -5,9 +5,13 @@
   "description": "Daily rare-answer trivia for a friend group",
   "scripts": {
     "dev": "node server/build-bank.mjs && node server/dev-server.mjs",
-    "test": "node server/build-bank.mjs && node test/test.js && node test/matching.js"
+    "test": "node server/build-bank.mjs && node test/test.js && node test/matching.js",
+    "practice": "node server/build-bank.mjs && node scripts/build-practice.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^11.1.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
   }
 }
