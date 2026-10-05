@@ -23,12 +23,23 @@ function err(status, message) { const e = new Error(message); e.status = status;
 const diveNo = day => T.dayIndex(day) - T.dayIndex(SETTINGS.LAUNCH_DAY) + 1;
 const maxScore = () => SETTINGS.PER_DAY * T.MAX_PTS;
 
-export function createGame(store, now = () => Date.now()) {
+// token -> { key, username, at }: saves a storage read per request on a warm server.
+// Sessions never change once written, so the only staleness is a logout seen late by another instance.
+const SESSION_CACHE = new Map();
+const SESSION_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * store: { get, set, del, list }. opts.defer(fn): run fn after the response is sent
+ * (Netlify: context.waitUntil); used to build answer indexes before anyone needs them.
+ */
+export function createGame(store, now = () => Date.now(), opts = {}) {
   const today = () => T.todayStr(SETTINGS.TZ, now());
+  const defer = opts.defer || (fn => setTimeout(fn, 0));
+  const warm = q => { if (q && !q._index) defer(() => { try { T.warm(q); } catch (e) { /* grading will build it */ } }); };
   // ---------- auth ----------
-  async function newSession(userKey) {
+  async function newSession(userKey, username) {
     const token = randomToken(24);
-    await store.set(`sessions/${token}`, { user: userKey, created: now() });
+    await store.set(`sessions/${token}`, { user: userKey, username, created: now() });
     return token;
   }
   async function signup({ username, password, invite }) {
@@ -42,24 +53,32 @@ export function createGame(store, now = () => Date.now()) {
     if (await store.get(`users/${key}`)) throw err(409, 'That name is taken. Log in instead, or pick another.');
     const salt = randomHex(16);
     await store.set(`users/${key}`, { username, salt, hash: hashPw(String(password), salt), created: now() });
-    await store.set(`scores/${key}`, { username, days: {} });
-    return { token: await newSession(key), user: { username } };
+    const [token] = await Promise.all([newSession(key, username), store.set(`scores/${key}`, { username, days: {} })]);
+    return { token, user: { username } };
   }
   async function login({ username, password }) {
     const key = String(username || '').trim().toLowerCase();
     const u = key && await store.get(`users/${key}`);
     if (!u || !safeEq(hashPw(String(password || ''), u.salt), u.hash)) throw err(401, 'Wrong name or password.');
-    return { token: await newSession(key), user: { username: u.username } };
+    return { token: await newSession(key, u.username), user: { username: u.username } };
   }
   async function auth(token) {
     if (!token) throw err(401, 'Log in to play.');
+    const hit = SESSION_CACHE.get(token);
+    if (hit && now() - hit.at < SESSION_TTL_MS) return { key: hit.key, username: hit.username };
     const s = await store.get(`sessions/${token}`);
     if (!s) throw err(401, 'Your session ended. Log in again.');
-    const u = await store.get(`users/${s.user}`);
-    if (!u) throw err(401, 'Account not found.');
-    return { key: s.user, username: u.username };
+    let username = s.username;
+    if (!username) {                       // sessions made before usernames were stored on them
+      const u = await store.get(`users/${s.user}`);
+      if (!u) throw err(401, 'Account not found.');
+      username = u.username;
+    }
+    if (SESSION_CACHE.size > 500) SESSION_CACHE.clear();
+    SESSION_CACHE.set(token, { key: s.user, username, at: now() });
+    return { key: s.user, username };
   }
-  async function logout(token) { if (token) await store.del(`sessions/${token}`); return { ok: true }; }
+  async function logout(token) { if (token) { SESSION_CACHE.delete(token); await store.del(`sessions/${token}`); } return { ok: true }; }
 
   // ---------- dives ----------
   const diveKey = (day, user) => `dives/${day}/${user.key}`;
@@ -81,7 +100,7 @@ export function createGame(store, now = () => Date.now()) {
     if (!dive) return null;
     return {
       day: dive.day, no: diveNo(dive.day), total: dive.qids.length, score: dive.score, finished: dive.finished,
-      depth: T.depthFor(dive.score, maxScore()), zone: T.zoneFor(T.depthFor(dive.score, maxScore())),
+      depth: T.depthFor(dive.score), zone: T.zoneFor(T.depthFor(dive.score)),
       answers: dive.answers.filter(a => a.done).map(a => publicAnswer(a, reveal && dive.finished)),
     };
   }
@@ -95,14 +114,18 @@ export function createGame(store, now = () => Date.now()) {
     return false;
   }
   function rescore(dive) { dive.score = dive.answers.reduce((s, a) => s + (a.pts || 0), 0); }
-  async function saveDive(user, dive) {
-    rescore(dive);
-    if (!dive.finished && dive.answers.length === dive.qids.length && dive.answers.every(a => a.done)) dive.finished = true;
-    await store.set(diveKey(dive.day, user), dive);
+  async function saveScores(user, dive) {
     const sc = (await store.get(`scores/${user.key}`)) || { username: user.username, days: {} };
     sc.username = user.username;
     sc.days[dive.day] = { score: dive.score, finished: dive.finished, n: dive.answers.filter(a => a.done).length };
     await store.set(`scores/${user.key}`, sc);
+  }
+  // The dive and the leaderboard row are written in parallel. Opening a prompt changes
+  // nothing the leaderboard shows, so that path skips the scores row (scores: false).
+  async function saveDive(user, dive, { scores = true } = {}) {
+    rescore(dive);
+    if (!dive.finished && dive.answers.length === dive.qids.length && dive.answers.every(a => a.done)) dive.finished = true;
+    await Promise.all([store.set(diveKey(dive.day, user), dive), scores ? saveScores(user, dive) : null]);
   }
   async function loadDive(user, day) {
     const dive = await store.get(diveKey(day, user));
@@ -113,6 +136,11 @@ export function createGame(store, now = () => Date.now()) {
   async function state(user) {
     const day = today();
     const dive = await loadDive(user, day);
+    if (!dive || !dive.finished) {
+      const open = dive && dive.answers[dive.answers.length - 1];
+      const qid = open && !open.done ? open.qid : dive ? dive.qids[dive.answers.length] : T.pickDaily(BANK, day, SETTINGS.PER_DAY)[0].id;
+      warm(BY_ID.get(qid));
+    }
     return {
       user: { username: user.username },
       today: day, no: diveNo(day),
@@ -137,7 +165,7 @@ export function createGame(store, now = () => Date.now()) {
     }
     if (dive.finished) return { finished: true, dive: summary(dive, true), serverNow: now() };
     const open = currentQuestion(dive);
-    if (open) return { question: open, dive: summary(dive, false), serverNow: now() };
+    if (open) { warm(BY_ID.get(dive.answers[dive.answers.length - 1].qid)); return { question: open, dive: summary(dive, false), serverNow: now() }; }
     const i = dive.answers.length;
     if (i >= dive.qids.length) { await saveDive(user, dive); return { finished: true, dive: summary(dive, true), serverNow: now() }; }
     const q = BY_ID.get(dive.qids[i]);
@@ -148,7 +176,8 @@ export function createGame(store, now = () => Date.now()) {
       return next(user);
     }
     dive.answers.push({ index: i, qid: q.id, prompt: q.prompt, cat: q.cat, startedAt: t, deadline: t + SETTINGS.SECONDS * 1000, done: false, tier: null, pts: 0, misses: [] });
-    await saveDive(user, dive);
+    await saveDive(user, dive, { scores: i === 0 });   // first prompt puts you on today's board as "diving now"
+    warm(q);
     return { question: currentQuestion(dive), dive: summary(dive, false), serverNow: now() };
   }
 
@@ -179,6 +208,7 @@ export function createGame(store, now = () => Date.now()) {
     Object.assign(a, { done: true, input, tier: g.tier, pts: g.pts, canon: g.canon, how: g.how, answeredAt: now() });
     await saveDive(user, dive);
     const res = { valid: true, tier: g.tier, tierName: T.TIERS[g.tier].name, pts: g.pts, canon: g.canon, how: g.how, score: dive.score, finished: dive.finished };
+    warm(BY_ID.get(dive.qids[a.index + 1]));
     if (dive.finished) res.dive = summary(dive, true);
     return res;
   }

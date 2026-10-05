@@ -15,15 +15,16 @@
   };
   const TIER_ORDER = ['plankton', 'clever', 'schooler', 'rare', 'deep', 'one'];
   const MAX_PTS = 100;
-  const MAX_DEPTH_M = 10935; // Challenger Deep: a perfect dive lands here.
-
-  const ZONES = [
-    { max: 0,      name: 'Surface' },
-    { max: 0.0183, name: 'Sunlight zone' },  // ~200 m
-    { max: 0.0915, name: 'Twilight zone' },  // ~1,000 m
-    { max: 0.3658, name: 'Midnight zone' },  // ~4,000 m
-    { max: 0.5487, name: 'Abyssal zone' },   // ~6,000 m
-    { max: 1.01,   name: 'Hadal zone' },
+  // Depth works like Krillion's: every point is 10 m of descent (a perfect 10-prompt day = 10,000 m).
+  const M_PER_PT = 10;
+  const MAX_DEPTH_M = 10000;
+  const ZONES = [                        // real ocean zones, by metres
+    { max: 0,        name: 'Surface' },
+    { max: 200,      name: 'Sunlight zone' },
+    { max: 1000,     name: 'Twilight zone' },
+    { max: 4000,     name: 'Midnight zone' },
+    { max: 6000,     name: 'Abyssal zone' },
+    { max: Infinity, name: 'Hadal zone' },
   ];
 
   // ---------- Normalisation ----------
@@ -523,21 +524,19 @@
   }
 
   // ---------- Depth ----------
-  function depthFor(score, maxScore) {
-    if (!maxScore) return 0;
-    return Math.round((score / maxScore) * MAX_DEPTH_M);
-  }
+  function depthFor(score) { return Math.max(0, Math.round((score || 0) * M_PER_PT)); }
   function zoneFor(depthM) {
-    const f = depthM / MAX_DEPTH_M;
-    for (const z of ZONES) if (f <= z.max) return z.name;
+    for (const z of ZONES) if (depthM <= z.max) return z.name;
     return ZONES[ZONES.length - 1].name;
   }
+  /** Build a prompt's answer index ahead of time so the first answer on it isn't slow. */
+  function warm(question) { buildIndex(question); globalTokenFreq(); }
 
   function add(cat, ...qs) { for (const x of qs) { x.cat = cat; root.TRENCH_BANK.push(x); } }
 
   const api = {
-    TIERS, TIER_ORDER, MAX_PTS, MAX_DEPTH_M, ZONES,
-    norm, keysFor, phon, q, add, more, extend, grade, buildIndex, entries, hash, dist,
+    TIERS, TIER_ORDER, MAX_PTS, MAX_DEPTH_M, M_PER_PT, ZONES,
+    norm, keysFor, phon, q, add, more, extend, grade, buildIndex, warm, entries, hash, dist,
     todayStr, dayIndex, addDays, pickDaily,
     depthFor, zoneFor,
   };

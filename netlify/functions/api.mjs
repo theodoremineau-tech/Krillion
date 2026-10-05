@@ -15,6 +15,12 @@ function blobStore() {
   };
 }
 
-export default async (req) => respond(createGame(blobStore()), req);
+// Background work (building the next prompt's answer index) runs after the response is sent.
+const deferWith = context => fn => {
+  const p = new Promise(r => setTimeout(r, 0)).then(fn);
+  if (context && typeof context.waitUntil === 'function') context.waitUntil(p);
+};
+
+export default async (req, context) => respond(createGame(blobStore(), undefined, { defer: deferWith(context) }), req);
 
 export const config = { path: '/api/*' };

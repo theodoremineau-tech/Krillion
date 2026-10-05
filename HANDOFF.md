@@ -15,7 +15,7 @@ A private, Krillion-style daily trivia game for Teddy's friend group. Every day 
 | Deep Cut | 85 |
 | One in a Million | 100 |
 
-A perfect day is 1,000 points = 10,935 m (bottom of the Mariana Trench). Score converts to a depth and an ocean zone.
+Depth works like Krillion's: every point is 10 m, so a perfect day is 1,000 points = 10,000 m. Zones use real ocean depths (Sunlight to 200 m, Twilight to 1,000, Midnight to 4,000, Abyssal to 6,000, then Hadal).
 
 **The key design decision:** tiers are fixed, hand-written per answer. They do *not* depend on what other players typed (real Krillion ranks by global rarity; with five friends that would make everything "rare" or nothing). So a Deep Cut is always a Deep Cut.
 
@@ -166,6 +166,13 @@ q('Name a thing',
 - Prompt id = hash of the prompt text, so **rewording a prompt makes it a new prompt** (fine, just know it).
 
 **Caveat:** the sheets were written from memory, quickly. Expect some valid answers missing and some tiers you'd rank differently. Fixing them is the single highest-value ongoing task.
+
+## Speed (Oct 2026)
+
+- Play uses one persistent card and one input that stays focused for the whole dive, so the phone keyboard opens once. Results hold briefly (1.0–2.0 s by tier, with a fill bar on the Next button) and Enter or a tap skips ahead; there are no other fixed pauses.
+- Sessions store the username and are cached per warm function instance, so most requests need one storage read for auth.
+- The dive and the leaderboard row save in parallel; opening a prompt only writes the dive.
+- Answer indexes for big prompts (MLB, soccer) take up to ~0.5 s to build on a cold instance, so `/state`, `/next` and `/answer` warm the current or next prompt in the background via `context.waitUntil` (`opts.defer` in `createGame`).
 
 ## Settings (`server/game.mjs` → `SETTINGS`)
 

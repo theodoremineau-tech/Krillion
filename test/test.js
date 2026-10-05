@@ -101,9 +101,13 @@ const d2 = T.pickDaily(BANK, '2026-10-02', perDay).map(x => x.id);
 eq(d1.some(id => d2.includes(id)), false, 'consecutive days share no prompts');
 
 // 6. depth/zone
-eq(T.depthFor(2000, 2000), 10935, 'perfect = Challenger Deep');
+eq(T.depthFor(1000), 10000, '1 point = 10 m, perfect day = 10,000 m');
+eq(T.depthFor(60), 600, 'a Rare answer sinks 600 m');
 eq(T.zoneFor(0), 'Surface', 'zone surface');
-eq(T.zoneFor(10935), 'Hadal zone', 'zone hadal');
+eq(T.zoneFor(150), 'Sunlight zone', 'zone sunlight');
+eq(T.zoneFor(4000), 'Midnight zone', 'zone midnight at 4,000 m');
+eq(T.zoneFor(5000), 'Abyssal zone', 'zone abyssal');
+eq(T.zoneFor(10000), 'Hadal zone', 'zone hadal');
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nALL PASSED');
 process.exit(failures ? 1 : 0);

@@ -3,7 +3,8 @@
   'use strict';
   const FX = window.TrenchFX;
   const root = document.getElementById('app');
-  const MAX_DEPTH = 10935;
+  const M_PER_PT = 10;            // like Krillion: every point is 10 m of descent
+  const MAX_DEPTH = 10000;         // a perfect 10-prompt day
   const TIER = {
     plankton: { name: 'Plankton', pts: 10 }, clever: { name: 'Too Clever', pts: 15 }, schooler: { name: 'Schooler', pts: 30 },
     rare: { name: 'Rare', pts: 60 }, deep: { name: 'Deep Cut', pts: 85 }, one: { name: 'One in a Million', pts: 100 },
@@ -17,7 +18,7 @@
     deep: ['Deep cut.', 'The lights are going out.', 'Pressure’s building.'],
     one: ['One in a million.', 'Nobody saw that coming.', 'Bottom of the sea.'],
   };
-  const ZONES = [[0, 'Surface'], [200, 'Sunlight zone'], [1000, 'Twilight zone'], [4000, 'Midnight zone'], [6000, 'Abyssal zone'], [MAX_DEPTH + 1, 'Hadal zone']];
+  const ZONES = [[0, 'Surface'], [200, 'Sunlight zone'], [1000, 'Twilight zone'], [4000, 'Midnight zone'], [6000, 'Abyssal zone'], [Infinity, 'Hadal zone']];
   const zoneFor = m => { if (m <= 0) return 'Surface'; for (let i = 1; i < ZONES.length; i++) if (m <= ZONES[i][0]) return ZONES[i][1]; return 'Hadal zone'; };
 
   const PRACTICE = window.TRENCH_PRACTICE || null;   // practice build: in-page server, nothing saved
@@ -59,7 +60,7 @@
     return new Date(Date.UTC(y, m - 1, dd)).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
   }
   function addDays(d, n) { const [y, m, dd] = d.split('-').map(Number); return new Date(Date.UTC(y, m - 1, dd + n)).toISOString().slice(0, 10); }
-  const depthOf = (score, max) => Math.round((score / (max || 1000)) * MAX_DEPTH);
+  const depthOf = score => Math.round((score || 0) * M_PER_PT);
 
   async function api(method, path, body, tries = 2) {
     for (let attempt = 0; ; attempt++) {
@@ -84,7 +85,7 @@
   }
 
   // ---------- depth backdrop (shared by every screen) ----------
-  const SURFACE = [40, 167, 186], ABYSS = [3, 13, 26];
+  const SURFACE = [26, 128, 152], ABYSS = [5, 10, 20];
   function setDepth(frac) {
     const f = Math.max(0, Math.min(1, frac));
     const e = Math.pow(f, 0.45);
@@ -177,6 +178,7 @@
     runId++;
     setDepth(0.04);
     FX.stopSnow();
+    const boardReq = api('GET', '/leaderboard').catch(e => e);   // in parallel with /state
     try { st = await api('GET', '/state'); me = st.user; }
     catch (e) { if (!e.handled) mount(errorScreen(e.message, homeScreen)); return; }
 
@@ -206,7 +208,7 @@
     }
     const boardBox = h('section', { class: 'board-wrap' }, h('p', { class: 'fine' }, 'Loading the depth chart…'));
     mount(h('div', { class: 'page lobby' }, topbar(h('span', { class: 'who' }, me.username)), h('main', { class: 'lobby-main' }, hero, boardBox)));
-    loadBoard(boardBox);
+    loadBoard(boardBox, boardReq);
   }
 
   function pipRow(answers, total) {
@@ -228,7 +230,7 @@
         h('p', {}, 'Every prompt has an answer sheet. Type something that fits: the more obvious it is, the fewer points; the more obscure (but still right), the deeper you sink.'),
         h('ul', { class: 'tier-list' }, rows),
         h('p', {}, 'Typos, plurals, missing spaces and extras like “Mount” or “Lake” are forgiven. If an answer isn’t on the sheet it won’t lock in, so try another while the clock runs.'),
-        h('p', { class: 'fine' }, 'A perfect day is 1,000 points: the bottom of the Mariana Trench. Leaving mid-prompt doesn’t pause the clock.'),
+        h('p', { class: 'fine' }, 'Every point sinks you 10 m. A perfect day is 1,000 points, 10,000 m down in the Hadal zone. Leaving mid-prompt doesn’t pause the clock.'),
         h('button', { class: 'btn primary', type: 'button', onclick: close }, 'Got it')));
     document.body.append(dlg);
     dlg.querySelector('button').focus();
@@ -251,8 +253,8 @@
   }
 
   // ---------- leaderboard ----------
-  async function loadBoard(box) {
-    try { board = await api('GET', '/leaderboard'); }
+  async function loadBoard(box, pending) {
+    try { board = await (pending || api('GET', '/leaderboard')); if (board instanceof Error) throw board; }
     catch (e) { if (!e.handled) box.replaceChildren(h('p', { class: 'form-error' }, e.message)); return; }
     renderBoard(box);
   }
@@ -308,175 +310,210 @@
   // =====================================================================
   function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
 
+  // How long a result stays up before the next prompt slides in. Enter or "Next" skips it.
+  const HOLD_MS = { one: 2000, deep: 1700, rare: 1300, timeout: 1100 };
+  const holdFor = tier => HOLD_MS[tier] || 1000;
+
+  /*
+   * One persistent card for the whole dive: the prompt text, timer and result swap in place and
+   * the same input stays focused, so on phones the keyboard opens once and stays up.
+   */
   async function playScreen() {
     const my = ++runId;
-    const max = st.settings.maxScore, total = st.settings.perDay;
+    const total = st.settings.perDay;
     let score = st.dive ? st.dive.score : 0;
     const answers = st.dive ? st.dive.answers.slice() : [];
 
-    // persistent stage: the sea column stays mounted while prompts change
     const pips = h('div', { class: 'pips game-pips' });
     const scoreEl = h('span', { class: 'score-num' }, fmt(score));
     const depthLabel = h('span', { class: 'depth-label' });
     const marker = h('div', { class: 'sub-marker' }, sub(), depthLabel);
     const ruler = h('div', { class: 'ruler', 'aria-hidden': 'true' },
-      [0, 1000, 4000, 6000, 10935].map(m => h('span', { class: 'tick', style: `--p:${m / MAX_DEPTH}` }, m === 0 ? '0 m' : m === 10935 ? '10,935' : fmt(m))),
+      [0, 1000, 4000, 6000, 10000].map(m => h('span', { class: 'tick', style: `--p:${m / MAX_DEPTH}` }, m === 0 ? '0 m' : fmt(m))),
       marker);
-    const stage = h('div', { class: 'stage' });
+    const metaN = h('span', {}, '');
+    const metaCat = h('span', { class: 'cat' });
+    const promptEl = h('h2', { class: 'prompt' }, 'Descending…');
+    const fill = h('div', { class: 'air-fill' });
+    const clock = h('span', { class: 'air-num' }, String(st.settings.seconds));
+    const input = h('input', { class: 'answer', type: 'text', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', maxlength: 80, 'aria-label': 'Your answer', enterkeyhint: 'go', placeholder: 'Type an answer', readonly: true });
+    const go = h('button', { class: 'btn primary lock', type: 'submit' }, 'Descend');
+    const msg = h('p', { class: 'msg', 'aria-live': 'polite' });
+    const slot = h('div', { class: 'result-slot', 'aria-live': 'polite' });
+    let onSubmit = null;
+    const form = h('form', { class: 'answer-row', onsubmit: e => { e.preventDefault(); if (onSubmit) onSubmit(); } }, input, go);
+    const card = h('section', { class: 'prompt-card waiting' },
+      h('div', { class: 'prompt-meta' }, metaN, metaCat),
+      promptEl,
+      h('div', { class: 'air', role: 'timer', 'aria-label': 'Time left' }, h('div', { class: 'air-track' }, fill), clock),
+      slot, form, msg);   // result sits above the input so it's visible over a phone keyboard
     const snow = h('canvas', { class: 'snow', 'aria-hidden': 'true' });
     mount(h('div', { class: 'page play' },
       snow,
       topbar(h('span', { class: 'score-chip' }, scoreEl, h('span', { class: 'score-of' }, ' pts'))),
       h('div', { class: 'play-grid' },
-        h('main', { class: 'play-main' }, pips, stage),
+        h('main', { class: 'play-main' }, pips, h('div', { class: 'stage' }, card)),
         ruler)));
+    input.focus();   // still inside the tap that started the dive, so phones raise the keyboard
     FX.startSnow(snow);
 
     const renderPips = () => pips.replaceChildren(...Array.from({ length: total }, (_, i) => {
       const a = answers.find(x => x.index === i);
-      return h('span', { class: 'pip ' + (a ? (a.tier || 'timeout') : 'empty') });
+      return h('span', { class: 'pip ' + (a ? (a.tier || 'timeout') : i === answers.length ? 'now' : 'empty') });
     }));
     const placeSub = (instant) => {
-      const m = depthOf(score, max);
+      const m = depthOf(score);
       if (instant) marker.classList.add('no-anim');
-      marker.style.setProperty('--p', String(m / MAX_DEPTH));
+      marker.style.setProperty('--p', String(Math.min(1, m / MAX_DEPTH)));
       depthLabel.textContent = `${fmt(m)} m`;
       setDepth(m / MAX_DEPTH);
       if (instant) requestAnimationFrame(() => marker.classList.remove('no-anim'));
     };
     renderPips(); placeSub(true);
+    if (!answers.length && !st.current) { FX.sound.start(); FX.rush(); }
 
-    if (!answers.length && !st.current) {
-      // descent intro
-      stage.replaceChildren(h('div', { class: 'intro' }, h('p', { class: 'intro-big' }, 'Descending'), h('p', { class: 'fine' }, 'First prompt in a moment.')));
-      FX.sound.start(); FX.rush();
-      await sleep(1300);
-      if (my !== runId) return;
-    }
+    // Wait for Enter / "Next", or move on by itself after a short beat.
+    const hold = (tier) => new Promise(resolve => {
+      const ms = holdFor(tier);
+      go.textContent = 'Next';
+      go.disabled = false;
+      go.style.setProperty('--hold', ms + 'ms');
+      go.classList.remove('auto'); void go.offsetWidth; go.classList.add('auto');
+      let t = null;
+      const shownAt = Date.now();
+      const done = () => { clearTimeout(t); onSubmit = null; go.classList.remove('auto'); resolve(); };
+      onSubmit = () => { if (Date.now() - shownAt > 300) done(); };   // ignore a double-tapped Enter
+      t = setTimeout(done, ms);
+    });
 
+    let pending = api('POST', '/next');
     for (;;) {
-      if (my !== runId) return;
       let r;
-      try { r = await api('POST', '/next'); }
-      catch (e) { if (!e.handled) { stage.replaceChildren(errorBlock(e.message, () => playScreen())); } return; }
+      try { r = await pending; }
+      catch (e) { if (!e.handled && my === runId) card.replaceWith(errorBlock(e.message, () => playScreen())); return; }
       if (my !== runId) return;
-      if (r.finished) { st.dive = r.dive; await sleep(300); return resultsScreen(r.dive, true); }
-      const res = await askOne(r.question, stage, my);
+      if (r.finished) { st.dive = r.dive; return resultsScreen(r.dive, true); }
+      const res = await askOne(r.question);
       if (my !== runId || !res) return;
       answers.push({ index: r.question.index, tier: res.tier, pts: res.pts });
       const before = score;
       score = res.score;
       renderPips();
-      if (res.pts > 0) { FX.countUp(scoreEl, before, score, 900); placeSub(false); FX.rush(); }
-      await sleep(res.pts >= 85 ? 2300 : 1800);
+      if (res.pts > 0) { FX.countUp(scoreEl, before, score, 700); placeSub(false); FX.rush(); }
+      await hold(res.tier);
       if (my !== runId) return;
       if (res.finished && res.dive) { st.dive = res.dive; return resultsScreen(res.dive, true); }
+      card.classList.add('leaving');                 // fade out while the next prompt loads
+      pending = api('POST', '/next');
+    }
+
+    /** One prompt in the persistent card. Resolves with { tier, pts, score, finished, dive }. */
+    function askOne(q) {
+      return new Promise(resolve => {
+        const secs = Math.round((q.deadline - q.startedAt) / 1000);
+        const skew = q.serverNow - Date.now();          // server clock minus ours
+        const localDeadline = q.deadline - skew;
+        card.className = 'prompt-card';
+        void card.offsetWidth;
+        card.classList.add('enter');
+        metaN.textContent = `${q.index + 1} / ${q.total}`;
+        metaCat.textContent = q.cat || '';
+        promptEl.textContent = q.prompt;
+        slot.replaceChildren();
+        msg.className = 'msg'; msg.textContent = '';
+        input.value = ''; input.readOnly = false; input.classList.remove('nope');
+        go.textContent = 'Descend'; go.disabled = false; go.classList.remove('auto');
+        if (document.activeElement !== input) input.focus({ preventScroll: true });
+
+        let busy = false, done = false, lastTick = -1;
+        const finish = (res) => { done = true; onSubmit = null; stopTimer(); resolve(res); };
+
+        function tickClock() {
+          if (my !== runId) { stopTimer(); return; }
+          const left = Math.max(0, localDeadline - Date.now());
+          fill.style.transform = `scaleX(${left / (secs * 1000)})`;
+          const s = Math.ceil(left / 1000);
+          clock.textContent = String(s);
+          if (left < 6000) card.classList.add('low');
+          if (s <= 5 && s !== lastTick && s > 0) { lastTick = s; FX.sound.tick(s <= 3); }
+          if (left <= 0 && !done && !busy) expire();
+        }
+        stopTimer();
+        timer = setInterval(tickClock, 100);
+        tickClock();
+
+        async function expire() {
+          busy = true;
+          input.readOnly = true; go.disabled = true;
+          try {
+            let r = await api('POST', '/timeout', { index: q.index });
+            if (r.timeout === false) { await sleep(Math.max(200, r.deadline - r.serverNow + 300)); r = await api('POST', '/timeout', { index: q.index }); }
+            if (my !== runId) return;
+            showTimeout();
+            finish({ tier: 'timeout', pts: 0, score: r.score, finished: r.finished, dive: r.dive });
+          } catch (e) { if (!e.handled) { toast(e.message, 'bad'); busy = false; } }
+        }
+        function showTimeout() {
+          stopTimer();
+          input.readOnly = true;
+          card.classList.add('revealed', 'timed-out');
+          FX.sound.timeout(); FX.vibrate(120);
+          slot.replaceChildren(stampFor('timeout', 0, null, null));
+          requestAnimationFrame(() => slot.firstChild && slot.firstChild.classList.add('go'));
+        }
+
+        onSubmit = async function submit() {
+          if (busy || done) return;
+          const text = input.value.trim();
+          if (!text) return;
+          busy = true;
+          card.classList.add('checking');
+          let r;
+          try { r = await api('POST', '/answer', { index: q.index, text }); }
+          catch (ex) { card.classList.remove('checking'); busy = false; if (!ex.handled) toast(ex.message, 'bad'); return; }
+          card.classList.remove('checking');
+          if (my !== runId) return;
+          if (r.timeout) { showTimeout(); finish({ tier: 'timeout', pts: 0, score: r.score }); return; }
+          if (r.valid === false) {
+            busy = false;
+            FX.sound.wrong(); FX.vibrate([30, 40, 30]);
+            input.classList.remove('nope'); void input.offsetWidth; input.classList.add('nope');
+            msg.className = 'msg bad';
+            msg.textContent = `“${text}” isn’t on the sheet. Try another.`;
+            input.select();
+            return;
+          }
+          if (r.done) { finish({ tier: r.tier, pts: r.pts, score: r.score }); return; }
+          stopTimer();
+          input.readOnly = true;
+          reveal(r, text);
+          finish({ tier: r.tier, pts: r.pts, score: r.score, finished: r.finished, dive: r.dive });
+        };
+      });
+    }
+
+    function reveal(r, typed) {
+      const tier = r.tier;
+      const counted = typed.trim().toLowerCase() !== String(r.canon).toLowerCase() ? r.canon : null;
+      const stamp = stampFor(tier, r.pts, counted, r.canon);
+      msg.textContent = '';
+      card.classList.add('revealed', 't-' + tier);
+      slot.replaceChildren(stamp);
+      requestAnimationFrame(() => stamp.classList.add('go'));
+      setTimeout(() => FX.countUp(stamp.querySelector('.n'), 0, r.pts, 450), 120);
+      FX.sound.tier(tier);
+      FX.vibrate(tier === 'one' ? [40, 60, 40, 60, 120] : tier === 'deep' ? [40, 50, 80] : 25);
+      setTimeout(() => { FX.burst(stamp, tier); FX.bubbles(card, tier === 'one' ? 26 : tier === 'deep' ? 16 : 8, null); }, 100);
     }
   }
 
-  /** One prompt. Resolves with { tier, pts, score, finished, dive } once scored. */
-  function askOne(q, stage, my) {
-    return new Promise(resolve => {
-      const secs = Math.round((q.deadline - q.startedAt) / 1000);
-      const skew = q.serverNow - Date.now();          // server clock minus ours
-      const localDeadline = q.deadline - skew;
-      const fill = h('div', { class: 'air-fill' });
-      const clock = h('span', { class: 'air-num' }, String(secs));
-      const msg = h('p', { class: 'msg', 'aria-live': 'polite' });
-      const input = h('input', { class: 'answer', type: 'text', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', maxlength: 80, 'aria-label': 'Your answer', enterkeyhint: 'go', placeholder: 'Type an answer' });
-      const go = h('button', { class: 'btn primary lock', type: 'submit' }, 'Lock in');
-      const card = h('section', { class: 'prompt-card' },
-        h('div', { class: 'prompt-meta' }, h('span', {}, `${q.index + 1} of ${q.total}`), q.cat ? h('span', { class: 'cat' }, q.cat) : null),
-        h('h2', { class: 'prompt' }, q.prompt),
-        h('div', { class: 'air', role: 'timer', 'aria-label': 'Time left' }, h('div', { class: 'air-track' }, fill), clock),
-        h('form', { class: 'answer-row', onsubmit: submit }, input, go),
-        msg);
-      stage.replaceChildren(card);
-      requestAnimationFrame(() => card.classList.add('in'));
-      input.focus();
-
-      let busy = false, done = false, lastTick = -1;
-      const finish = (res) => { done = true; stopTimer(); resolve(res); };
-
-      function tickClock() {
-        if (my !== runId) { stopTimer(); return; }
-        const left = Math.max(0, localDeadline - Date.now());
-        fill.style.transform = `scaleX(${left / (secs * 1000)})`;
-        const s = Math.ceil(left / 1000);
-        clock.textContent = String(s);
-        if (left < 6000) card.classList.add('low');
-        if (s <= 5 && s !== lastTick && s > 0) { lastTick = s; FX.sound.tick(s <= 3); }
-        if (left <= 0 && !done && !busy) expire();
-      }
-      stopTimer();
-      timer = setInterval(tickClock, 100);
-      tickClock();
-
-      async function expire() {
-        busy = true;
-        input.disabled = true; go.disabled = true;
-        try {
-          let r = await api('POST', '/timeout', { index: q.index });
-          if (r.timeout === false) { await sleep(Math.max(200, r.deadline - r.serverNow + 300)); r = await api('POST', '/timeout', { index: q.index }); }
-          showTimeout();
-          setTimeout(() => finish({ tier: 'timeout', pts: 0, score: r.score, finished: r.finished, dive: r.dive }), 1500);
-        } catch (e) { if (!e.handled) { toast(e.message, 'bad'); busy = false; } }
-      }
-      function showTimeout() {
-        stopTimer();
-        card.classList.add('timed-out');
-        FX.sound.timeout(); FX.vibrate(120);
-        msg.className = 'msg bad';
-        msg.textContent = 'Out of air. That one scores zero.';
-      }
-
-      async function submit(e) {
-        e.preventDefault();
-        if (busy || done) return;
-        const text = input.value.trim();
-        if (!text) { input.focus(); return; }
-        busy = true; go.disabled = true;
-        card.classList.add('checking');
-        let r;
-        try { r = await api('POST', '/answer', { index: q.index, text }); }
-        catch (ex) { card.classList.remove('checking'); busy = false; go.disabled = false; if (!ex.handled) toast(ex.message, 'bad'); return; }
-        card.classList.remove('checking');
-        if (my !== runId) return;
-        if (r.timeout) { showTimeout(); setTimeout(() => finish({ tier: 'timeout', pts: 0, score: r.score }), 1500); return; }
-        if (r.valid === false) {
-          busy = false; go.disabled = false;
-          FX.sound.wrong(); FX.vibrate([30, 40, 30]);
-          input.classList.remove('nope'); void input.offsetWidth; input.classList.add('nope');
-          msg.className = 'msg bad';
-          msg.textContent = `“${text}” isn’t on the sheet. Try another.`;
-          input.select();
-          return;
-        }
-        if (r.done) { finish({ tier: r.tier, pts: r.pts, score: r.score }); return; }
-        stopTimer();
-        input.disabled = true;
-        reveal(card, r, text);
-        finish({ tier: r.tier, pts: r.pts, score: r.score, finished: r.finished, dive: r.dive });
-      }
-    });
-  }
-
-  function reveal(card, r, typed) {
-    const tier = r.tier;
-    const shown = typed.trim().toLowerCase() !== String(r.canon).toLowerCase();
-    const stamp = h('div', { class: 'stamp ' + tier, role: 'status' },
+  // "Deep Cut  +85 PTS  ▼ 850 m" — the result line under the answer box.
+  function stampFor(tier, pts, counted, canon) {
+    return h('div', { class: 'stamp ' + tier, role: 'status' },
       h('span', { class: 'stamp-tier' }, TIER[tier].name),
-      h('span', { class: 'stamp-pts' }, '+', h('span', { class: 'n' }, '0')),
-      h('span', { class: 'stamp-canon' }, shown ? `Counted as ${r.canon}` : r.canon),
-      h('span', { class: 'stamp-line' }, pick(TIER_LINES[tier] || [''])));
-    card.classList.add('revealed', 't-' + tier);
-    card.querySelector('.answer-row').replaceWith(stamp);
-    card.querySelector('.msg').textContent = '';
-    requestAnimationFrame(() => stamp.classList.add('go'));
-    setTimeout(() => FX.countUp(stamp.querySelector('.n'), 0, r.pts, 650), 220);
-    FX.sound.tier(tier);
-    FX.vibrate(tier === 'one' ? [40, 60, 40, 60, 120] : tier === 'deep' ? [40, 50, 80] : 25);
-    setTimeout(() => { FX.burst(stamp, tier); FX.bubbles(card, tier === 'one' ? 26 : tier === 'deep' ? 16 : 8, null); }, 160);
+      h('span', { class: 'stamp-pts' }, '+', h('span', { class: 'n' }, '0'), ' PTS',
+        pts > 0 ? h('span', { class: 'stamp-m' }, `▼ ${fmt(pts * M_PER_PT)} m`) : null),
+      counted ? h('span', { class: 'stamp-canon' }, `Counted as ${counted}`) : null);
   }
 
   // =====================================================================
