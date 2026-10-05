@@ -1,6 +1,7 @@
 // Run with: node test/test.js
 const path = require('path');
 const T = require('../server/core.js');
+require('../server/wordlist.js');
 const fs = require('fs');
 const QDIR = path.join(__dirname, '../server/questions');
 for (const f of fs.readdirSync(QDIR).filter(f => f.endsWith('.js')).sort()) require(path.join(QDIR, f));

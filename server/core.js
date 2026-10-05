@@ -115,6 +115,7 @@
       looser: l2.join(' '),
       compact: l2.join(''),
       compact1: l1.join(''),
+      raw: f2.join(''),          // unstemmed: typo budgets and sound keys use the full spelling
       toks: l2,
     };
   }
@@ -161,12 +162,6 @@
     }
     return prev[m];
   }
-  function typoBudget(len) {
-    if (len < 5) return 0;
-    if (len < 8) return 1;
-    if (len < 14) return 2;
-    return 3;
-  }
 
   /** q(prompt, plankton, clever, schooler, rare, deep, one, opts)
    *  Each tier is a string: "Answer; Other answer/alias/alias; ..."
@@ -188,16 +183,62 @@
   }
 
   function entries(question) {
+    if (question._entries) return question._entries;
     const out = [];
+    const byCanon = new Map();
+    const push = (tier, entry, auto) => {
+      const forms = entry.split('/').map(s => s.trim()).filter(Boolean);
+      if (!forms.length) return;
+      const e = { tier, canon: forms[0], forms, auto: !!auto };
+      out.push(e);
+      byCanon.set(forms[0], e);
+    };
     for (const tier of TIER_ORDER) {
       const raw = question.sheet[tier];
-      if (!raw) continue;
-      for (const entry of raw.split(';')) {
-        const forms = entry.split('/').map(s => s.trim()).filter(Boolean);
-        if (forms.length) out.push({ tier, canon: forms[0], forms });
+      if (raw) for (const entry of raw.split(';')) push(tier, entry, false);
+    }
+    // hand-written deep cuts added later (Trench.more); skipped when already on the sheet
+    if (question.more) {
+      const have = new Set(out.flatMap(e => e.forms.map(norm)));
+      for (const [tier, raw] of question.more) {
+        for (const entry of raw.split(';')) {
+          const forms = entry.split('/').map(s => s.trim()).filter(Boolean);
+          if (!forms.length || forms.some(f => have.has(norm(f)))) continue;
+          forms.forEach(f => have.add(norm(f)));
+          push(tier, forms.join('/'), false);
+        }
       }
     }
+    // generated expansion (server/questions/zz_expanded.js): extra answers + extra aliases
+    const x = question.expanded;
+    if (x) {
+      for (const tier of TIER_ORDER) for (const entry of (x.add && x.add[tier]) || []) push(tier, entry, true);
+      for (const [canon, aliases] of Object.entries(x.alias || {})) {
+        const e = byCanon.get(canon);
+        if (e) for (const a of aliases) if (!e.forms.includes(a)) e.forms.push(a);
+      }
+    }
+    question._entries = out;
     return out;
+  }
+
+  /** More hand-written answers for an existing prompt: more('Prompt', { schooler: '...', rare: '...', deep: '...', one: '...' }) */
+  function more(prompt, tiers) {
+    const qs = (root.TRENCH_BANK || []).find(q => q.prompt === prompt);
+    if (!qs) throw new Error('more: unknown prompt ' + prompt);
+    qs.more = qs.more || [];
+    for (const t of TIER_ORDER) if (tiers[t]) qs.more.push([t, tiers[t]]);
+    qs._entries = null; qs._index = null;
+  }
+
+  /** Attach generated answers to prompts: { 'Prompt text': { add: {tier: [...]}, alias: {canon: [...]} } } */
+  function extend(map) {
+    for (const [prompt, x] of Object.entries(map)) {
+      const qs = (root.TRENCH_BANK || []).find(q => q.prompt === prompt);
+      if (!qs) throw new Error('extend: unknown prompt ' + prompt);
+      qs.expanded = x;
+      qs._entries = null; qs._index = null;
+    }
   }
 
   const AMBIG = { ambiguous: true };
@@ -208,6 +249,27 @@
     else if (cur !== AMBIG && cur.canon !== val.canon) map.set(key, AMBIG);
   }
 
+  // ---------- sound-alike key ----------
+  // A rough English phonetic code: "Kathmandu"/"Cathmandu", "Tennessee"/"Tenese", "Scaphoid"/"Scafoid"
+  // and "Somalia"/"Zomalia" all collapse to the same key. Vowels are kept (as one symbol) so short
+  // words don't all collide.
+  function phon(compact) {
+    let s = compact.replace(/[^a-z0-9]/g, '');
+    if (!s) return '';
+    s = s.replace(/^(kn|gn|pn)/, 'n').replace(/^wr/, 'r').replace(/^ps/, 's').replace(/^x/, 's').replace(/^wh/, 'w');
+    s = s.replace(/([a-z])\1+/g, '$1');
+    s = s.replace(/ph/g, 'f').replace(/gh(?![aeiouy])/g, '').replace(/sch/g, 'sk').replace(/tch/g, 'ch')
+      .replace(/dg(?=[eiy])/g, 'j').replace(/c(?=[eiy])/g, 's').replace(/ck/g, 'k').replace(/(ch|sh)/g, 'x')
+      .replace(/c/g, 'k').replace(/q/g, 'k').replace(/x/g, 'ks').replace(/z/g, 's').replace(/th/g, '0')
+      .replace(/y/g, 'i').replace(/w(?![aeiou])/g, '');
+    s = s.replace(/([^aeiou])e$/, '$1').replace(/[aeiou]+/g, 'a').replace(/([a-z0-9])\1+/g, '$1');
+    return s;
+  }
+  // letters people swap at the start of a word: Cimono/Kimono, Zochi/Sochi, Fennel/Phennel
+  const FIRST_CLASS = { c: 'k', k: 'k', q: 'k', s: 's', z: 's', f: 'f', p: 'f', i: 'i', y: 'i', e: 'i', j: 'j', g: 'j', v: 'v', w: 'v', a: 'a', o: 'a', u: 'a' };
+  const sameStart = (a, b) => a[0] === b[0] || (FIRST_CLASS[a[0]] && FIRST_CLASS[a[0]] === FIRST_CLASS[b[0]]) ||
+    (a[0] === b[1] && a[1] === b[0]);
+
   function buildIndex(question) {
     if (question._index) return question._index;
     const extra = question.opts.strip ? new Set(question.opts.strip.map(w => norm(w))) : null;
@@ -217,10 +279,12 @@
     const vocab = new Set(tokens(question.prompt));
     for (const e of all) for (const f of e.forms) for (const t of tokens(f)) vocab.add(t);
     const soft = new Set([...SOFT].filter(w => vocab.has(w)));
-    const idx = { exact: new Map(), loose: new Map(), looser: new Map(), compact: new Map(), token: new Map(), fuzzy: [], extra, soft };
+    const idx = { exact: new Map(), loose: new Map(), looser: new Map(), compact: new Map(), sorted: new Map(), phon: new Map(),
+      token: new Map(), keys: [], extra, soft };
     // exact forms first; an exact form always beats a looser collision
     for (const e of all) for (const f of e.forms) { const k = norm(f); if (k && !idx.exact.has(k)) idx.exact.set(k, e); }
     const tokenOwners = new Map();
+    const seenKey = new Set();
     for (const e of all) {
       for (const f of e.forms) {
         const k = keysFor(f, extra, soft);
@@ -229,7 +293,17 @@
         put(idx.looser, k.looser, e);
         put(idx.compact, k.compact, e);
         if (k.compact1 !== k.compact) put(idx.compact, k.compact1, e);
-        if (k.compact.length >= 4) idx.fuzzy.push({ key: k.compact, e });
+        const raw = norm(f).replace(/ /g, '');
+        if (raw !== k.compact) put(idx.compact, raw, e);
+        if (k.toks.length > 1) put(idx.sorted, k.toks.slice().sort().join(' '), e);
+        if (k.raw.length >= (e.auto ? 6 : 5)) {
+          const pk = phon(k.raw);
+          const list = idx.phon.get(pk) || [];
+          if (!list.some(x => x.e === e)) list.push({ e, raw: k.raw });
+          idx.phon.set(pk, list);
+        }
+        const sig = e.canon + '|' + k.compact;
+        if (k.compact.length >= 3 && !seenKey.has(sig)) { seenKey.add(sig); idx.keys.push({ c: k.compact, r: k.raw, toks: k.toks, e, auto: e.auto }); }
         if (k.toks.length > 1 && k.toks.length <= 4) {
           for (const t of k.toks) {
             if (t.length < 4 || NO_SOLO_TOKEN.has(t) || /^\d+$/.test(t)) continue;
@@ -244,34 +318,87 @@
     }
     // a lone word only counts when exactly one answer contains it
     for (const [t, owners] of tokenOwners) if (owners.size > 1) idx.token.set(t, AMBIG);
-    // people prompts: surnames always eligible (even short ones like "Ali")
+    // people prompts: a surname alone counts, and so does a distinctive first name ("Kobe", "Shaq")
     if (question.opts.names) {
-      const last = new Map();
+      // a surname or distinctive first name alone counts ("Ruth", "Kobe"); when it is shared,
+      // a hand-written (well-known) person beats the deep-list ones
+      const maps = { last: [new Map(), new Map()], first: [new Map(), new Map()] };
       for (const e of all) {
-        const toks = dropInitials(tokens(e.canon)).filter(t => !['jr', 'junior', 'sr', 'senior', 'ii', 'iii', 'iv'].includes(t));
-        if (toks.length > 1) {
-          const l = toks[toks.length - 1];
-          put(last, l, e);
+        for (const f of e.forms) {
+          const toks = dropInitials(tokens(f)).filter(t => !['jr', 'junior', 'sr', 'senior', 'ii', 'iii', 'iv'].includes(t));
+          if (toks.length > 1) {
+            for (const m of e.auto ? [1] : [0, 1]) {
+              put(maps.last[m], toks[toks.length - 1], e);
+              put(maps.first[m], toks[0], e);
+            }
+          }
         }
       }
-      for (const [l, e] of last) {
-        if (!idx.exact.has(l) && e !== AMBIG && l.length >= 3) {
+      const pickName = (hand, any, key) => {
+        const h = hand.get(key);
+        if (h && h !== AMBIG) return h;
+        if (h === AMBIG) return null;
+        const a = any.get(key);
+        return a && a !== AMBIG ? a : null;
+      };
+      const keysOf = m => new Set([...m[0].keys(), ...m[1].keys()]);
+      for (const l of keysOf(maps.last)) {
+        const e = pickName(maps.last[0], maps.last[1], l);
+        if (e && !idx.exact.has(l) && l.length >= 3) {
           idx.exact.set(l, e);
-          if (l.length >= 5) idx.fuzzy.push({ key: l, e });
+          if (l.length >= 4) idx.keys.push({ c: l, r: l, toks: [l], e, surname: true, auto: e.auto });
         }
+      }
+      for (const f of keysOf(maps.first)) {
+        const e = pickName(maps.first[0], maps.first[1], f);
+        if (e && !e.auto && !idx.exact.has(f) && f.length >= 4) idx.exact.set(f, e);
       }
     }
     question._index = idx;
     return idx;
   }
 
-  function result(e, how, input) {
+  function result(e, how) {
     return { tier: e.tier, pts: TIERS[e.tier].pts, canon: e.canon, how, fuzzy: how !== 'exact' };
   }
 
+  // typo allowance: roughly one slip per four letters
+  function typoBudget(len) {
+    if (len < 5) return 0;
+    if (len < 8) return 1;
+    if (len < 12) return 2;
+    if (len < 16) return 3;
+    return 4;
+  }
+  function tokenBudget(len) { return len < 4 ? 0 : len < 8 ? 1 : 2; }
+
+  /** Every input token pairs with a different answer token, each within its own typo budget.
+   *  Returns the summed distance, or -1. Order doesn't matter. */
+  function tokensMatch(inp, ans) {
+    const used = new Array(ans.length).fill(false);
+    let total = 0;
+    for (const t of inp) {
+      let best = -1, bestD = 99;
+      for (let j = 0; j < ans.length; j++) {
+        if (used[j]) continue;
+        const a = ans[j];
+        if (a === t) { best = j; bestD = 0; break; }
+        const b = Math.min(tokenBudget(t.length), tokenBudget(a.length));
+        if (!b || !sameStart(t, a)) continue;
+        const d = dist(t, a, b);
+        if (d <= b && d < bestD && !(root.TRENCH_WORDS && root.TRENCH_WORDS.has(t) && root.TRENCH_WORDS.has(a))) { best = j; bestD = d; }
+      }
+      if (best < 0) return -1;
+      used[best] = true; total += bestD;
+    }
+    return total;
+  }
+
   /** Grade a typed answer. Returns null when it isn't on the sheet, otherwise
-   *  { tier, pts, canon, how }. Accepts typos, swapped letters, plurals, spacing,
-   *  filler words, category words, initials and (for people) surnames. */
+   *  { tier, pts, canon, how }. Forgives typos (about one per four letters), sound-alike
+   *  spellings, swapped letters, word order, missing or extra spaces, plurals, filler and
+   *  category words, extra words around the answer, initials, and surnames/first names for
+   *  people prompts. When two answers are equally close, the lower-scoring one wins. */
   function grade(question, input) {
     const idx = buildIndex(question);
     const ex = norm(input);
@@ -280,33 +407,71 @@
     if (hit) return result(hit, 'exact');
     const k = keysFor(input, idx.extra, idx.soft);
     if (!k) return null;
-    for (const [map, key, how] of [[idx.loose, k.loose, 'loose'], [idx.looser, k.looser, 'loose'], [idx.compact, k.compact, 'loose'], [idx.compact, k.compact1, 'loose']]) {
+    const rawIn = ex.replace(/ /g, '').replace(/^the(?=.{4})/, '');
+    for (const [map, key] of [[idx.loose, k.loose], [idx.looser, k.looser], [idx.compact, k.compact], [idx.compact, k.compact1],
+      [idx.compact, rawIn], [idx.compact, ex.replace(/ /g, '')]]) {
       hit = map.get(key);
-      if (hit && hit !== AMBIG) return result(hit, how);
+      if (hit && hit !== AMBIG) return result(hit, 'loose');
     }
     if (idx.exact.has(k.loose)) return result(idx.exact.get(k.loose), 'loose');
+    if (k.toks.length > 1) {
+      hit = idx.sorted.get(k.toks.slice().sort().join(' '));
+      if (hit && hit !== AMBIG) return result(hit, 'loose');
+    }
     // one distinctive word ("Teton" -> "Grand Teton")
     if (k.toks.length === 1 && k.compact.length >= 4 && (globalTokenFreq().get(k.toks[0]) || 0) <= 2) {
       hit = idx.token.get(k.toks[0]);
       if (hit && hit !== AMBIG) return result(hit, 'partial');
     }
-    // typo tolerance on the loosest key, scaled with length; must be a unique best match
-    const c = k.compact;
-    const budget = typoBudget(c.length);
-    if (budget > 0) {
-      let best = null, bestD = budget + 1, tie = false;
-      for (const { key, e } of idx.fuzzy) {
-        const b = Math.min(budget, typoBudget(key.length));
-        if (b === 0) continue;
-        if (key[0] !== c[0] && !(key[0] === c[1] && key[1] === c[0])) continue;
-        const d = dist(c, key, b);
-        if (d > b) continue;
-        if (d < bestD) { bestD = d; best = e; tie = false; }
-        else if (d === bestD && best && e.canon !== best.canon) tie = true;
-      }
-      if (best && !tie) return result(best, 'typo');
+
+    // ---- scored candidates ----
+    const c = k.compact, r = k.raw;
+    const cands = [];
+    const add = (e, cost, how) => cands.push({ e, cost, how });
+    const p = r.length >= 5 ? phon(r) : '';
+    for (const { e, raw: target } of (p.length >= 4 && idx.phon.get(p)) || []) {
+      // sounds the same and is still recognisably the same spelling
+      const lim = Math.max(2, Math.ceil(target.length / 3));
+      if (!sameStart(r, target)) continue;
+      const d = dist(r, target, lim);
+      if (d <= lim) add(e, 0.6 + d / 10, 'sound');
     }
-    return null;
+    const budget = typoBudget(r.length);
+    const W = root.TRENCH_WORDS;
+    const realWord = t => W && W.has(t);
+    // a real word isn't a typo of a different real word ("monkey" vs "money")
+    const realSwap = (a, b) => a !== b && realWord(a) && realWord(b);
+    const allowedExtra = idx.extraOk || (idx.extraOk = new Set([...FILLER, ...SOFT, ...tokens(question.prompt), 'famous', 'my', 'answer', 'player', 'team', 'group', 'brand', 'type', 'kind']));
+    for (const key of idx.keys) {
+      const kc = key.c;
+      // whole-answer typo distance
+      if (budget) {
+        // generated deep-list answers get a tighter allowance so stray words don't land on an
+        // obscure entry: one slip from 6 letters, two from 10
+        const kr = key.r || kc;
+        const b = key.auto ? Math.min(budget, kr.length >= 10 ? 2 : kr.length >= 6 ? 1 : 0) : Math.min(budget, typoBudget(kr.length));
+        if (b && sameStart(r, kr)) {
+          const d = Math.min(dist(r, kr, b), dist(c, kc, b));
+          if (d <= b && !(k.toks.length === 1 && key.toks.length === 1 && realSwap(r, kr))) add(key.e, d + (r[0] === kr[0] ? 0 : 0.5), 'typo');
+        }
+      }
+      if (key.surname) continue;
+      // word-by-word: any order, small typos inside each word
+      if (k.toks.length > 1 && key.toks.length === k.toks.length) {
+        const d = tokensMatch(k.toks, key.toks);
+        if (d >= 0 && (!key.auto || d <= 1)) add(key.e, d + 0.3, 'words');
+      }
+      // the answer plus a couple of extra words ("Tiger Woods the golfer"); the answer's own
+      // words must be spelled right (one slip allowed in long answers)
+      if (k.toks.length > key.toks.length && k.toks.length - key.toks.length <= 2 && kc.length >= 5 &&
+          k.toks.every(t => key.toks.includes(t) || allowedExtra.has(t))) {
+        const d = tokensMatch(key.toks, k.toks);
+        if (d === 0 || (d === 1 && kc.length >= 8 && !key.auto)) add(key.e, d + 1.5, 'extra words');
+      }
+    }
+    if (!cands.length) return null;
+    cands.sort((x, y) => x.cost - y.cost || TIERS[x.e.tier].pts - TIERS[y.e.tier].pts);
+    return result(cands[0].e, cands[0].how);
   }
 
   // ---------- Daily selection ----------
@@ -372,7 +537,7 @@
 
   const api = {
     TIERS, TIER_ORDER, MAX_PTS, MAX_DEPTH_M, ZONES,
-    norm, keysFor, q, add, grade, buildIndex, entries, hash, dist,
+    norm, keysFor, phon, q, add, more, extend, grade, buildIndex, entries, hash, dist,
     todayStr, dayIndex, addDays, pickDaily,
     depthFor, zoneFor,
   };

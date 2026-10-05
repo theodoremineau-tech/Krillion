@@ -109,11 +109,41 @@ Goal: be as forgiving as Krillion without accepting nonsense. Tried in order, fi
 2. **Loose:** drop filler words (`mount, lake, river, the, of, fc, dr…`), initials, number words → digits, light stemming (plurals).
 3. **Looser:** also drop category words, but only ones this prompt's sheet actually uses (so "corn snake" → corn on the snake prompt, but "Hawaiian roll" never becomes "Hawaiian").
 4. **Compact:** spaces removed ("spiderman", "cornsnake").
-5. **Single distinctive word:** "Teton" → Grand Teton, only if that word is rare across the whole bank and belongs to exactly one answer on this sheet.
-6. **Typos:** edit distance with letter swaps; 1 typo at 5–7 letters, 2 at 8–13, 3 at 14+; first letter must match (or be swapped); must be a unique closest match.
-7. **People prompts** (`{ names: true }`): surnames alone count when unambiguous ("Scheffler").
+5. **Word order:** sorted words match ("Bryant Kobe", "Potter Harry").
+6. **Single distinctive word:** "Teton" → Grand Teton, only if that word is rare across the whole bank and belongs to exactly one answer on this sheet.
+7. **Scored fuzzy candidates**, cheapest wins (ties go to the lower-scoring answer):
+   - **Typos** (edit distance with letter swaps, measured on the unstemmed spelling): 1 at 5–7 letters, 2 at 8–11, 3 at 12–15, 4 at 16+; first letter must match or be swapped.
+   - **Sounds-alike** (`phon()`: ph→f, c→k/s, silent starts, doubled letters, vowels collapsed): "Filadelfia", "Nitzsche", "Jaquin Fenix". Needs 5+ letters, same start, and still close in spelling.
+   - **Word by word:** each word within its own small typo budget, any order ("leonrdo dicaprio").
+   - **Extra words:** typing more than the answer is fine if the extras are filler or words from the prompt ("the Golden State Warriors basketball team").
+   - **Real-word guard:** a common English word is never read as a typo of a *different* common word ("monkey" ≠ "money", "chair" ≠ "char"). Word list: `server/wordlist.js` (generated from wordfreq).
+8. **People prompts** (`{ names: true }`): surnames, or a distinctive first name, alone count when unambiguous ("Scheffler", "Shohei"). A hand-written person beats a dataset one ("Kobe" → Kobe Bryant, not Kobe Bufkin).
 
-Measured false-accept rate (every answer from every other prompt fed into each prompt): roughly 1 in 500. Tightening further starts rejecting real typos. `test/matching.js` is the regression suite; add a line there for any accept/reject bug you fix.
+Answers that came from datasets (see below) get slightly stricter fuzzy rules (1 typo from 6 letters, 2 from 10; sound-alikes from 6 letters), because the big lists are where accidental collisions live.
+
+**Measuring it:** `node tools/eval-matching.js` (`--quick`, `--show` for samples). It mangles real answers (typos, sound-alikes, missing spaces, word order, plurals, surname typos) and feeds random words plus other prompts' answers in as junk. Oct 2026: **95.5%** of messy inputs accepted (was 81.6%), **0.6%** false accepts, 0.8% mapped to the wrong answer. Watch both numbers when changing anything. `test/matching.js` is the regression suite; add a line there for any accept/reject bug you fix.
+
+## Answer bank depth (≈100k answers, was ≈21k)
+
+Three layers, loaded in file-name order:
+
+1. **Hand sheets** (`server/questions/*.js`, `Trench.add`) — the tiered core, as before.
+2. **Hand deep cuts** (`yy_more_*.js`, `Trench.more('Prompt', {rare: '...', deep: '...'})`) — long lists for prompts with no good dataset (dishes, brands, shows, characters). Anything already on the sheet is skipped automatically.
+3. **Generated** (`zz_expanded.js`, `Trench.extend`) — built from open datasets: WordNet (animals, plants, foods, clothing…), GeoNames/all-the-cities, pycountry, NBA/MLB (Chadwick)/NFL rosters, FIFA 22, Pokémon, Marvel (FiveThirtyEight), OpenFlights, GitHub Linguist, Simpsons, Harry Potter. Country prompts only take *aliases* from datasets, never new answers.
+
+Tiering for added answers works like Krillion's: the rarer the text is in everyday English (wordfreq Zipf score), the higher the tier, calibrated per prompt against the hand sheet's Rare/Deep/One medians. Added answers only ever land in Rare, Deep Cut or One in a Million. Tiers are fixed per answer and never depend on what players typed.
+
+**Regenerate** (needs Python 3 + network):
+```
+bash tools/expand/fetch.sh                 # datasets into tools/expand/.cache (gitignored)
+node tools/expand/dump-hand.js
+NLTK_DATA=tools/expand/.cache/nltk_data python3 tools/expand/sources.py
+node tools/expand/merge.js                 # writes zz_expanded.js + a per-prompt report
+node server/build-bank.mjs && npm test && node tools/eval-matching.js
+```
+Wrong dataset items for a prompt go in `BLOCK` in `tools/expand/merge.js`. Prompt → source mapping is `SOURCES` in `sources.py`.
+
+Data licences: WordNet (WordNet licence), wordfreq (MIT / CC-BY-SA data), GeoNames (CC-BY 4.0), Chadwick register (ODC-BY), nflverse (CC-BY 4.0), FiveThirtyEight (CC-BY 4.0), OpenFlights (ODbL), Linguist (MIT), pycountry (LGPL), nba_api (MIT). The FIFA, Simpsons and HP CSVs are community scrapes on GitHub; fine for a private friend game, check before anything public. **No Krillion code or answer data is used** — only its published behaviour (forgiving matching, frequency-based rarity).
 
 ## Adding or editing prompts
 

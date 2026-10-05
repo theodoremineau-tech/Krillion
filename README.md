@@ -7,7 +7,8 @@ Daily rare-answer trivia for a friend group. Everyone gets the same 10 prompts e
 - **Accounts and saved progress live on the server.** Netlify Functions + Netlify Blobs, in the same Netlify site. A dive is saved after every answer, so closing the tab, switching phones or losing signal never loses progress. The clock keeps running server-side, so leaving mid-prompt doesn't buy extra time.
 - **Fixed answer sheets.** Each prompt has six tiers: Plankton 10, Too Clever 15, Schooler 30, Rare 60, Deep Cut 85, One in a Million 100. Scores never depend on what other players typed.
 - **Grading is server-side.** The answer sheets aren't shipped to the browser, so nobody can peek in dev tools.
-- **Forgiving matching.** Typos and swapped letters (scaled to word length), plurals, spacing ("spiderman"), punctuation, filler words ("Mount", "Lake", "the"), category words the prompt uses ("corn snake", "Sicilian defense"), initials, number words, and surnames for people prompts.
+- **Forgiving matching.** Typos and swapped letters (scaled to word length), sound-alike spellings ("Filadelfia"), any word order, plurals, spacing ("spiderman"), punctuation, filler and prompt words ("Mount", "the", "the Warriors basketball team"), initials, number words, and surnames for people prompts. A real word is never read as a typo of a different real word. `node tools/eval-matching.js` measures it (about 95% of messy answers accepted, 0.6% false accepts).
+- **Deep answer banks.** About 100,000 accepted answers across 152 prompts: hand-written tiered sheets, hand-written deep-cut lists, and answers generated from open datasets and tiered by how rare the word is in everyday English. See HANDOFF.md, "Answer bank depth".
 - **Leaderboard.** Today, last 7 days and all time. After you finish, you can see what everyone else answered.
 
 ## Layout
@@ -17,7 +18,8 @@ public/              static site (index.html, app.js, fx.js, style.css)
 netlify/functions/   api.mjs: the /api/* function
 server/game.mjs      accounts, sessions, dives, grading, leaderboard
 server/core.js       matching engine, tiers, daily rotation
-server/questions/    answer sheets (server-only)
+server/questions/    answer sheets (server-only); zz_expanded.js is generated
+tools/expand/        dataset pipeline that builds zz_expanded.js
 test/                node test/test.js && node test/matching.js
 ```
 

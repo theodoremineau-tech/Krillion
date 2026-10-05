@@ -2,6 +2,7 @@
 const path = require('path');
 const fs = require('fs');
 const T = require('../server/core.js');
+require('../server/wordlist.js');
 const QDIR = path.join(__dirname, '../server/questions');
 for (const f of fs.readdirSync(QDIR).filter(f => f.endsWith('.js')).sort()) require(path.join(QDIR, f));
 const BANK = globalThis.TRENCH_BANK;
@@ -89,6 +90,39 @@ reject('Name a US state that', 'Florida');
 reject('Name a US state that', 'Virginia');
 reject('Name a fruit', 'chair');
 reject('Name a chemical element', 'Kryptonite');
+
+// --- Krillion-style leniency (v3 matcher) ---
+accept('Name a US vice president', 'Harris Kamala', 'Kamala Harris');        // word order
+accept('Name a country in Africa', 'zomalia', 'Somalia');                    // sound-alike first letter
+accept('Name a world capital city', 'cathmandu', 'Kathmandu');
+accept('Name a US state', 'tenese', 'Tennessee');
+accept('Name a bone in the human body', 'scafoid', 'Scaphoid');
+accept('Name a herb or spice', 'chyves', 'Chives');
+accept('Name a rock band', 'piksies', 'Pixies');
+accept('Name a Pixar movie', 'TheGoodDinosaur', 'The Good Dinosaur');       // no spaces, with "The"
+accept('Name a lake', 'LakeNaivasha', 'Lake Naivasha');
+accept('Name a professional golfer', 'tiger woods golfer', 'Tiger Woods'); // extra word from the prompt
+accept('Name an NBA player, any era', 'Kobe', 'Kobe Bryant');                 // distinctive first name
+accept('Name a country in Asia', 'Bangladsh', 'Bangladesh');
+// --- deeper banks (generated from open datasets) ---
+accept('Name a mammal', 'pangolin');
+accept('Name a mammal', 'Tasmanian devil');
+accept('Name a type of bird', 'Purple Martin');
+accept('Name a cheese', 'Cashel Blue');
+accept('Name a European city that is not a capital', 'Braunschweig');
+accept('Name a city in Texas', 'Pflugerville');
+accept('Name an MLB player, any era', 'Joaquin Benoit');
+accept('Name an NBA player, any era', 'Bol Bol');
+accept('Name a Pokemon', 'Wooper');
+accept('Name a language', 'Muskogee');
+accept('Name a famous author', 'Daniel Defoe');
+accept('Name a word that starts with Q', 'quixotic');
+// --- still rejected ---
+reject('Name an MLB player, any era', 'monkey');                              // real word, not a typo of "Money"
+reject('Name a country in Asia', 'Eddie Jordan');                             // extra words that aren't about the prompt
+reject('Name a language', 'Thigh');
+reject('Name a type of tea', 'Shua');
+reject('Name a mammal', 'chair');
 
 console.log(`\n${n - fails}/${n} passed`);
 process.exit(fails ? 1 : 0);
