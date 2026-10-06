@@ -229,7 +229,7 @@
         h('h2', {}, 'How scoring works'),
         h('p', {}, 'Every prompt has an answer sheet. Type something that fits: the more obvious it is, the fewer points; the more obscure (but still right), the deeper you sink.'),
         h('ul', { class: 'tier-list' }, rows),
-        h('p', {}, 'Typos, plurals, missing spaces and extras like “Mount” or “Lake” are forgiven. If an answer isn’t on the sheet it won’t lock in, so try another while the clock runs.'),
+        h('p', {}, 'Typos, plurals, missing spaces and extras like “Mount” or “Lake” are forgiven. When your answer is close but not exact, you’ll see what it will count as: submit again to confirm, or edit it. If an answer isn’t on the sheet it won’t lock in, so try another while the clock runs.'),
         h('p', { class: 'fine' }, 'Every point sinks you 10 m. A perfect day is 1,000 points, 10,000 m down in the Hadal zone. Leaving mid-prompt doesn’t pause the clock.'),
         h('button', { class: 'btn primary', type: 'button', onclick: close }, 'Got it')));
     document.body.append(dlg);
@@ -356,6 +356,7 @@
         ruler)));
     input.focus();   // still inside the tap that started the dive, so phones raise the keyboard
     FX.startSnow(snow);
+    input.addEventListener('input', () => { if (go.textContent === 'Confirm') go.textContent = 'Descend'; });   // edited the correction
 
     const renderPips = () => pips.replaceChildren(...Array.from({ length: total }, (_, i) => {
       const a = answers.find(x => x.index === i);
@@ -412,7 +413,7 @@
       return new Promise(resolve => {
         const secs = Math.round((q.deadline - q.startedAt) / 1000);
         const skew = q.serverNow - Date.now();          // server clock minus ours
-        const localDeadline = q.deadline - skew;
+        let localDeadline = q.deadline - skew;           // moves earlier if misses cost time
         card.className = 'prompt-card';
         void card.offsetWidth;
         card.classList.add('enter');
@@ -427,6 +428,24 @@
 
         let busy = false, done = false, lastTick = -1;
         const finish = (res) => { done = true; onSubmit = null; stopTimer(); resolve(res); };
+
+        // "“arabese” → “Aranese”  Submit again to confirm, or edit": the corrected text goes in the
+        // box; Enter locks it in, typing anything else starts over.
+        function showCorrection(from, to) {
+          input.value = to;
+          const pill = h('div', { class: 'correction', role: 'status' },
+            h('span', { class: 'corr-change' }, h('span', { class: 'corr-from' }, `“${from}”`), h('span', { class: 'corr-arrow', 'aria-hidden': 'true' }, '→'), h('span', { class: 'sr-only' }, ' corrects to '), h('b', { class: 'corr-to' }, `“${to}”`)),
+            h('span', { class: 'corr-hint' }, 'Submit again to confirm, or edit'));
+          slot.replaceChildren(pill);
+          go.textContent = 'Confirm';
+          input.focus({ preventScroll: true });
+          try { input.setSelectionRange(input.value.length, input.value.length); } catch (e) { /* not a text input state */ }
+        }
+        function clearCorrection() {
+          if (slot.querySelector('.correction')) slot.replaceChildren();
+          go.textContent = 'Descend';
+        }
+        if (q.pending) showCorrection(q.pending.from, q.pending.to);   // came back mid-confirmation
 
         function tickClock() {
           if (my !== runId) { stopTimer(); return; }
@@ -476,11 +495,21 @@
           if (r.timeout) { showTimeout(); finish({ tier: 'timeout', pts: 0, score: r.score }); return; }
           if (r.valid === false) {
             busy = false;
+            let docked = 0;
+            if (r.deadline) { const nd = r.deadline - skew; docked = Math.round((localDeadline - nd) / 1000); localDeadline = nd; }
+            clearCorrection();
             FX.sound.wrong(); FX.vibrate([30, 40, 30]);
             input.classList.remove('nope'); void input.offsetWidth; input.classList.add('nope');
             msg.className = 'msg bad';
-            msg.textContent = `“${text}” isn’t on the sheet. Try another.`;
+            msg.textContent = `“${text}” isn’t on the sheet. Try another.` + (docked > 0 ? ` −${docked} s` : '');
             input.select();
+            return;
+          }
+          if (r.preview) {
+            busy = false;
+            msg.className = 'msg'; msg.textContent = '';
+            FX.vibrate(15);
+            showCorrection(r.from, r.correction);
             return;
           }
           if (r.done) { finish({ tier: r.tier, pts: r.pts, score: r.score }); return; }
@@ -530,6 +559,7 @@
       .map(k => h('span', { class: 'chip ' + k }, `${TIER[k].name} × ${counts[k]}`));
     const num = h('span', { class: 'depth-num' }, fresh ? '0' : fmt(d.depth));
     const crew = h('div', { class: 'crew' });
+    const crewPicks = new Map();   // prompt index -> everyone's picks, once /group has loaded
     const list = h('ol', { class: 'review' }, d.answers.slice().sort((a, b) => a.index - b.index).map(a => {
       const tier = a.tier || 'timeout';
       return h('li', { class: 'rev', 'data-i': a.index },
@@ -541,10 +571,7 @@
           h('span', { class: 'chip ' + tier }, TIER[tier].name),
           a.input ? h('span', { class: 'rev-you' }, a.input) : h('span', { class: 'rev-you dim' }, 'No answer'),
           a.canon && a.input && a.canon.toLowerCase() !== a.input.toLowerCase() ? h('span', { class: 'rev-canon' }, `(${a.canon})`) : null),
-        (a.deepCuts && a.deepCuts.length) ? h('details', { class: 'deep' },
-          h('summary', {}, 'Deepest answers on the sheet'),
-          h('p', {}, h('span', { class: 'chip one' }, 'One in a Million'), ' ', a.deepCuts.join(', ')),
-          a.deepCuts2 && a.deepCuts2.length ? h('p', {}, h('span', { class: 'chip deep' }, 'Deep Cut'), ' ', a.deepCuts2.join(', ')) : null) : null,
+        a.sheetSize ? h('button', { class: 'link-btn browse', type: 'button', onclick: () => sheetModal(a, crewPicks.get(a.index) || []) }, `Browse all ${fmt(a.sheetSize)} answers`) : null,
         h('div', { class: 'crew-slot' }));
     }));
     mount(h('div', { class: 'page results' },
@@ -567,6 +594,7 @@
     try {
       const g = await api('GET', '/group');
       for (const p of g.prompts) {
+        crewPicks.set(p.index, p.picks);
         const slot = list.querySelector(`.rev[data-i="${p.index}"] .crew-slot`);
         if (!slot) continue;
         const others = p.picks.filter(x => x.username !== me.username);
@@ -575,6 +603,63 @@
           h('li', {}, h('span', { class: 'crew-name' }, x.username), h('span', { class: 'chip ' + (x.tier || 'timeout') }, (TIER[x.tier] || TIER.timeout).name), h('span', { class: 'crew-ans' }, x.canon || x.input || '—')))));
       }
     } catch (e) { /* crew answers are a bonus */ }
+  }
+
+  // The whole answer sheet for one prompt, Krillion-style: tier filters with counts, search, pages.
+  async function sheetModal(a, picks) {
+    const close = () => { dlg.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = e => { if (e.key === 'Escape') close(); };
+    const body = h('div', { class: 'sheet-body' }, h('p', { class: 'fine' }, 'Sounding the depths…'));
+    const card = h('div', { class: 'modal-card sheet-card' },
+      h('div', { class: 'sheet-head' },
+        h('p', { class: 'sheet-q' }, a.prompt),
+        h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', onclick: close }, '✕')),
+      body);
+    const dlg = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Answer sheet', onclick: e => { if (e.target === dlg) close(); } }, card);
+    document.body.append(dlg);
+    document.addEventListener('keydown', onKey);
+    let s;
+    try { s = await api('POST', '/sheet', { index: a.index }); }
+    catch (e) { if (!e.handled) body.replaceChildren(h('p', { class: 'form-error' }, e.message)); return; }
+    const who = new Map();   // answer -> who picked it today
+    for (const p of picks) {
+      if (!p.canon) continue;
+      const k = p.canon.toLowerCase();
+      if (!who.has(k)) who.set(k, []);
+      who.get(k).push(p.username === me.username ? 'you' : p.username);
+    }
+    const ORDER = ['one', 'deep', 'rare', 'schooler', 'clever', 'plankton'];
+    const PAGE = 100;
+    let tier = 'all', query = '', page = 0;
+    const chips = h('div', { class: 'sheet-chips', role: 'tablist' });
+    const search = h('input', { class: 'sheet-search', type: 'search', placeholder: 'Search all answers…', 'aria-label': 'Search answers', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false',
+      oninput: () => { query = search.value.trim().toLowerCase(); page = 0; renderList(); } });
+    const listEl = h('ol', { class: 'sheet-list' });
+    const foot = h('div', { class: 'sheet-foot' });
+    const renderChips = () => chips.replaceChildren(
+      h('button', { type: 'button', role: 'tab', 'aria-selected': String(tier === 'all'), class: 'schip' + (tier === 'all' ? ' on' : ''), onclick: () => { tier = 'all'; page = 0; render(); } }, `All ${fmt(s.total)}`),
+      ...ORDER.filter(k => s.counts[k]).map(k => h('button', { type: 'button', role: 'tab', 'aria-selected': String(tier === k), class: 'schip ' + k + (tier === k ? ' on' : ''), onclick: () => { tier = k; page = 0; render(); } }, `${TIER[k].name} ${fmt(s.counts[k])}`)));
+    const renderList = () => {
+      const rows = s.answers.filter(([c, t]) => (tier === 'all' || t === tier) && (!query || c.toLowerCase().includes(query)));
+      const slice = rows.slice(page * PAGE, page * PAGE + PAGE);
+      listEl.replaceChildren(...slice.map(([c, t]) => {
+        const names = who.get(c.toLowerCase());
+        return h('li', { class: names ? 'picked' : '' },
+          h('span', { class: 'pip ' + t, title: TIER[t].name }),
+          h('span', { class: 'sheet-ans' }, c, names ? h('span', { class: 'sheet-who' }, ` · ${names.join(', ')}`) : null),
+          h('span', { class: 'sheet-pts ' + t }, `+${TIER[t].pts}`));
+      }));
+      if (!rows.length) listEl.replaceChildren(h('li', { class: 'fine' }, 'Nothing matches.'));
+      const pages = Math.max(1, Math.ceil(rows.length / PAGE));
+      const flip = n => { page += n; renderList(); card.scrollTo(0, 0); };
+      foot.replaceChildren(h('span', { class: 'fine' }, rows.length ? `${fmt(page * PAGE + 1)}–${fmt(Math.min(rows.length, (page + 1) * PAGE))} of ${fmt(rows.length)}` : ''));
+      if (pages > 1) foot.append(h('span', { class: 'sheet-pager' },
+        h('button', { class: 'link-btn', type: 'button', disabled: page === 0, onclick: () => flip(-1) }, 'Previous'),
+        h('button', { class: 'link-btn', type: 'button', disabled: page >= pages - 1, onclick: () => flip(1) }, 'Next')));
+    };
+    const render = () => { renderChips(); renderList(); };
+    body.replaceChildren(chips, search, listEl, foot);
+    render();
   }
 
   function errorBlock(message, retry) {

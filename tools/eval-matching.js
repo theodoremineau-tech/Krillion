@@ -50,6 +50,10 @@ function variants(canon, q) {
   out.push(['plural/singular', /s$/i.test(s) ? s.slice(0, -1) : s + 's']);
   out.push(['lowercase + punctuation', s.toLowerCase().replace(/[^a-z0-9 ]/g, '') + '!']);
   if (q.opts.names && words.length >= 2) out.push(['surname typo', longest.length >= 6 ? edit(words[words.length - 1].toLowerCase()) : words[words.length - 1]]);
+  // what Krillion also takes (Oct 2026 probe): a wrong first letter, a dropped word, a lone distinctive word
+  if (longest.length >= 6) out.push(['wrong first letter', swapWord(pick(LET.replace(longest[0].toLowerCase(), '')) + longest.slice(1).toLowerCase())]);
+  if (words.length >= 3) out.push(['dropped word', words.filter((_, i) => i !== 1).join(' ')]);
+  if (words.length === 2 && longest.length >= 5) out.push(['one word of two', longest]);
   return out;
 }
 

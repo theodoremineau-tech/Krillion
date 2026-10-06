@@ -17,7 +17,8 @@ for (const x of BANK) {
   ids.add(x.id);
   for (const t of T.TIER_ORDER) {
     const raw = x.sheet[t] || '';
-    if (/\(dup\)|\? no\b|\.replace\(|[()]/.test(raw)) fail(`junk in "${x.prompt}" tier ${t}`);
+    // brackets are allowed for disambiguators like "Baseball (drinking game)"; leftovers from drafting are not
+    if (/\(dup\)|\? no\b|\.replace\(|\(\s*\)/.test(raw)) fail(`junk in "${x.prompt}" tier ${t}`);
   }
 }
 ok(`${BANK.length} prompts, ${ids.size} unique ids`);

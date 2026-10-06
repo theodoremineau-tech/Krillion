@@ -73,7 +73,7 @@ Invite code for creating accounts: **DEEPCUT** (set in `server/game.mjs`).
 1. `POST /api/next` creates today's dive if needed. Today's 10 prompts come from `pickDaily(bank, date, 10)` in `core.js`: a seeded shuffle of the whole bank, round-robined across categories, sliced by day. Same date = same prompts for everyone. No repeats until the bank is exhausted (152 prompts / 10 = 15 days), then it reshuffles.
 2. The dive stores its own list of prompt ids, so adding or removing prompts mid-day can't break anyone's in-progress dive.
 3. Each prompt gets a server-side deadline (`startedAt + 25s`, plus 3 s network grace). The client timer is cosmetic.
-4. `POST /api/answer` grades on the server. Not on the sheet → `{valid:false}`, player can keep trying until the deadline. On the sheet → locked in, saved.
+4. `POST /api/answer` grades on the server. Not on the sheet → `{valid:false, deadline}` (the deadline moves earlier by `MISS_PENALTY_MS` if that is set), player can keep trying until the deadline. Exact or near-exact → locked in, saved. Fuzzy → `{preview:true, from, correction}`; the client fills the corrected text in and the next submit locks it in (see "Confirmation step" below).
 5. Closing the tab doesn't pause anything: when the player comes back, any prompt past its deadline is settled as a miss, and they resume at the next one.
 6. "Today" is midnight-to-midnight **America/New_York**.
 
@@ -89,6 +89,7 @@ Invite code for creating accounts: **DEEPCUT** (set in `server/game.mjs`).
 | `POST /answer` `{index,text}` | grade; `{valid:false}` or tier/pts/canon/score |
 | `POST /timeout` `{index}` | settle a prompt whose time ran out |
 | `GET /group` | everyone's answers for today (only after you finish) |
+| `POST /sheet` `{index}` | one prompt's whole answer sheet, rarest first, with per-tier counts (only after you finish) |
 | `GET /leaderboard` | all players' per-day scores (client computes Today / 7-day / All-time) |
 | `GET /health` | prompt count, today |
 
@@ -105,23 +106,31 @@ Invite code for creating accounts: **DEEPCUT** (set in `server/game.mjs`).
 
 Goal: be as forgiving as Krillion without accepting nonsense. Tried in order, first hit wins:
 
-1. **Exact** after normalizing (case, accents, punctuation, `&`→and, leading "the/a/an"). Every `/`-alias on the sheet counts.
-2. **Loose:** drop filler words (`mount, lake, river, the, of, fc, dr…`), initials, number words → digits, light stemming (plurals).
-3. **Looser:** also drop category words, but only ones this prompt's sheet actually uses (so "corn snake" → corn on the snake prompt, but "Hawaiian roll" never becomes "Hawaiian").
-4. **Compact:** spaces removed ("spiderman", "cornsnake").
-5. **Word order:** sorted words match ("Bryant Kobe", "Potter Harry").
-6. **Single distinctive word:** "Teton" → Grand Teton, only if that word is rare across the whole bank and belongs to exactly one answer on this sheet.
-7. **Scored fuzzy candidates**, cheapest wins (ties go to the lower-scoring answer):
-   - **Typos** (edit distance with letter swaps, measured on the unstemmed spelling): 1 at 5–7 letters, 2 at 8–11, 3 at 12–15, 4 at 16+; first letter must match or be swapped.
+1. **Exact** after normalizing (case, accents, punctuation, `&`→and, leading "the/a/an", British/American spellings: colour/color, centre/center, organise/organize, grey/gray, aluminium…). Every `/`-alias on the sheet counts.
+2. **Name** (people prompts, `{ names: true }`): a surname or a distinctive first name alone ("Scheffler", "Kobe"). A hand-written person beats a dataset one. Reported as `how: 'name'` so the player gets to confirm which person ("roosevelt" could be either).
+3. **Loose:** drop filler words (`mount, lake, river, the, of, fc, dr…`), initials, number words → digits, light stemming (plurals).
+4. **Looser:** also drop category words, but only ones this prompt's sheet actually uses ("corn snake" → corn on the snake prompt, never "Hawaiian roll" → "Hawaiian"), **and the prompt's own words** ("Makeup" counts for "Makeup brush" on "Name a type of brush"; "Smoke" for "Smoke detector" when the prompt mentions detectors).
+5. **Compact:** spaces removed ("spiderman", "cornsnake").
+6. **Word order:** sorted words match ("Bryant Kobe", "Potter Harry").
+7. **Single distinctive word:** "Teton" → Grand Teton, "Saudi" → Saudi Arabia: the word belongs to exactly one answer on this sheet and is either uncommon across the bank or not an everyday English word (5+ letters when it is). Dataset answers keep the strict version.
+8. **Scored fuzzy candidates**, cheapest wins. Ties go to the answer containing more of the words typed ("georgiaa State" → Georgia State, not Georgia), then to the lower-scoring answer:
+   - **Typos** (edit distance with letter swaps, on the full spelling): about one slip per four letters of the *longer* spelling — 1 at 4–7 letters (4 only when the typed word isn't a real word: "keny", "indi"), 2 at 8–11, 3 at 12–15, 4 at 16–19, 5 at 20+. The first letter may be wrong when the typed thing isn't a real word ("pasketball", "eranese"; but "chad" never offers Hades). A whole extra head or tail of 3+ letters isn't a typo ("Kryptonite" ≠ Krypton, "Mini" ≠ Mini golf).
    - **Sounds-alike** (`phon()`: ph→f, c→k/s, silent starts, doubled letters, vowels collapsed): "Filadelfia", "Nitzsche", "Jaquin Fenix". Needs 5+ letters, same start, and still close in spelling.
    - **Word by word:** each word within its own small typo budget, any order ("leonrdo dicaprio").
    - **Extra words:** typing more than the answer is fine if the extras are filler or words from the prompt ("the Golden State Warriors basketball team").
-   - **Real-word guard:** a common English word is never read as a typo of a *different* common word ("monkey" ≠ "money", "chair" ≠ "char"). Word list: `server/wordlist.js` (generated from wordfreq).
-8. **People prompts** (`{ names: true }`): surnames, or a distinctive first name, alone count when unambiguous ("Scheffler", "Shohei"). A hand-written person beats a dataset one ("Kobe" → Kobe Bryant, not Kobe Bufkin).
+   - **Missing words:** two or more typed words, all found in the answer in order, covering at least half of it ("united emirates" → United Arab Emirates, "bosnia herzegovina"). Long answers also get here through the typo budget alone, which is how Krillion does it.
+   - **Bracketed disambiguators:** a sheet entry like `Baseball (drinking game)` means the bare word is *not* an answer. "baseball" is rejected; "baseball drinking" and the full form count. A partial must include one of the bracketed words.
+   - **Real-word guard:** a common English word is not read as a typo of a *different* common word ("monkey" ≠ "money", "chair" ≠ "char", "baseball" ≠ "basketball") — except, as on Krillion, when it is a single slip from a hand-written answer of 5+ letters ("boxes" → Boxer, "bones" → Bonus), which the confirm pill then shows. Word list: `server/wordlist.js` (generated from wordfreq).
 
 Answers that came from datasets (see below) get slightly stricter fuzzy rules (1 typo from 6 letters, 2 from 10; sound-alikes from 6 letters), because the big lists are where accidental collisions live.
 
-**Measuring it:** `node tools/eval-matching.js` (`--quick`, `--show` for samples). It mangles real answers (typos, sound-alikes, missing spaces, word order, plurals, surname typos) and feeds random words plus other prompts' answers in as junk. Oct 2026: **95.5%** of messy inputs accepted (was 81.6%), **0.6%** false accepts, 0.8% mapped to the wrong answer. Watch both numbers when changing anything. `test/matching.js` is the regression suite; add a line there for any accept/reject bug you fix.
+**Confirmation step (Krillion's autocorrect).** Only `exact` and `loose` lock in straight away. Anything fuzzier (`typo`, `sound`, `words`, `extra words`, `missing`, `partial`, `name`) comes back from `POST /answer` as `{preview: true, from, correction}` instead of a score; the client puts the corrected text in the box under a pill (“arabese” → “Aranese”, *Submit again to confirm, or edit*) and the next submit, now an exact match, locks in. The server remembers the pending correction on the answer (`a.pending`), so a reload shows the pill again, the original typing is stored as `input`, and the match kind as `how`. `T.needsConfirm(how)` is the one place that decides. Switch off with `CONFIRM_CORRECTIONS: false` in `SETTINGS`. Krillion previews *everything* non-exact, plurals included; we skip the pill for plurals, spacing and filler since those can't be wrong.
+
+**What we measured on Krillion (Oct 2026, 474 hand-run probes of its public submit endpoint on one day's prompts, behaviour only):** 1 typo at 4–7 letters and 2 at 8+ are always corrected (55/55 and 30/32), as are dropped letters (55/55), plurals (56/57) and missing spaces (27/27); a wrong first letter is fine (50/52: "pasketball", "kroquet", "loyalties" → Royalties); letter swaps are *inconsistent* (43 corrected, 11 rejected: "Jamiaca" yes but "Myamnar", "Fareose", "Snokoer" no — likely a similarity-score threshold, not edit rules); the prompt's words are optional ("Makeup" → Makeup brush, "Smoke" → Smoke detector, "Carbon detector" → Carbon monoxide detector) but "brush"/"detector" alone, "Mini", "pong", "United", "Islands" are rejected; "United Emirates", "Arab Emirates" and "baseball drinking" are corrected, "Baseball game"/"drinking game" rejected (both collapse to one bare word once "game" from the prompt is dropped); a lone word of a two-word answer is accepted only sometimes ("extinguisher", "camera", "diem", "Hazard" yes; "Security", "fence", "shaker", "cover" no — looks like hand-written aliases). Ties don't favour the common answer ("gairbrush" → Airbrush, not Hairbrush). Everything non-exact shows the confirm pill, aliases and plurals included ("billiards" → Pool, "Golfs" → Golf). A second probe (128 cases) showed swaps are position-dependent but not predictable (never at the first two letters; "Matlese" yes, "Mlatese" no), substitutions at the same spots always corrected; Krillion has **no real-word guard** ("bones" → Bonus, "fitter" → Filters, "samba" → Samoa) but gives *no* typo allowance to 4-letter inputs ("Golv", "Crup", "mail" rejected; "Golff", "Cropp" corrected), which is what kept most real words out; "my smoke detector" corrected but "smoke detector alarm" and "golf course" rejected; 3 slips in 24 letters corrected; "UAE", "burma", "usa", "united states" rejected (no aliases) while "america", "hourly", "wages", "tip", "hoops" are hand aliases. Net: after this patch the Trench is at least as forgiving on every category, and more forgiving on swaps, partial words and abbreviations.
+
+**Measuring it:** `node tools/eval-matching.js` (`--quick`, `--show` for samples). It mangles real answers (typos, sound-alikes, missing spaces, word order, plurals, surname typos, and — since this patch — a wrong first letter, a dropped word, one word of a two-word answer) and feeds random words plus other prompts' answers in as junk. Oct 2026, `--quick`, same harness on both: **94.2%** of messy inputs accepted with this patch vs **79.3%** on the Oct 5 matcher (wrong first letter 25% → 98%, dropped word 29% → 76%, one word of two 43% → 52%, surname typo 79% → 87%, 1 typo 93% → 97%); **0.6%** false accepts (was 0.4%); 1.8% mapped to the wrong answer (was 1.9%). On the old harness without the three new kinds the full-run numbers are 97.3% / 0.8% / 0.6%. The extra false accepts are junk words landing on obscure entries, which the confirm pill now shows before anything scores. Watch both numbers when changing anything. `test/matching.js` is the regression suite (116 cases); add a line there for any accept/reject bug you fix.
+
+**Finding what's still missing:** `node tools/misses-report.mjs` (local data) or `NETLIFY_SITE_ID=… NETLIFY_TOKEN=… node tools/misses-report.mjs --netlify` lists every rejected guess grouped by prompt, how many people tried it, and whether the current matcher would now take it. Anything two people typed is probably a real answer or a missing alias.
 
 ## Answer bank depth (≈100k answers, was ≈21k)
 
@@ -176,7 +185,7 @@ q('Name a thing',
 
 ## Settings (`server/game.mjs` → `SETTINGS`)
 
-`TZ`, `PER_DAY` (10), `SECONDS` (25), `GRACE_MS` (3000), `INVITE_CODE` ('DEEPCUT'), `LAUNCH_DAY` (dive numbering starts here).
+`TZ`, `PER_DAY` (10), `SECONDS` (25), `GRACE_MS` (3000), `INVITE_CODE` ('DEEPCUT'), `LAUNCH_DAY` (dive numbering starts here), `CONFIRM_CORRECTIONS` (true: fuzzy matches are previewed before they score), `MISS_PENALTY_MS` (0: seconds docked per rejected answer, in ms; Krillion-like would be ~3000).
 
 ## Known issues and gaps
 
@@ -191,7 +200,8 @@ q('Name a thing',
 ## Ideas not built yet
 
 - Admin page: view/edit sheets, reset a password, see misses (the `misses` array on each answer is a great source of answers to add).
-- "Accepted answers people tried that weren't on the sheet" report → feed into sheet edits.
+- ~~"Answers people tried that weren't on the sheet" report~~ → built: `tools/misses-report.mjs`. Next step would be an admin page that shows the same thing in the browser.
+- One-line blurbs for the rarest answers on each sheet (Krillion shows "Shakes the mattress so a deaf sleeper wakes to the smoke alarm" under its 100-pointers). Needs a sheet-format addition, e.g. `Answer/alias {{blurb}}`.
 - Streaks, weekly winner banner, archive of past days.
 - Themed packs / unlimited practice mode using the practice engine.
 - Group chat bot that posts the day's results.

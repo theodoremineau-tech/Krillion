@@ -14,6 +14,11 @@ export const SETTINGS = {
   GRACE_MS: 3000,          // network slack on the 25 s clock
   INVITE_CODE: 'DEEPCUT',  // needed to create an account; case-insensitive
   LAUNCH_DAY: '2026-10-01',
+  // Krillion-style confirmation: a typo / sound-alike / partial / surname match is shown as
+  // "what you typed -> what it counts as" and the player submits again to lock it in.
+  // false = fuzzy matches lock in straight away (the old behaviour).
+  CONFIRM_CORRECTIONS: true,
+  MISS_PENALTY_MS: 0,      // time taken off the clock for each rejected answer (Krillion docks a few seconds; 0 = free retries)
 };
 
 const USER_RE = /^[A-Za-z0-9_]{2,16}$/;
@@ -84,15 +89,10 @@ export function createGame(store, now = () => Date.now(), opts = {}) {
   const diveKey = (day, user) => `dives/${day}/${user.key}`;
 
   function publicAnswer(a, withSheetInfo) {
-    const out = { index: a.index, prompt: a.prompt, cat: a.cat, input: a.input || '', tier: a.tier, pts: a.pts, canon: a.canon || null, done: a.done };
+    const out = { index: a.index, prompt: a.prompt, cat: a.cat, input: a.input || '', tier: a.tier, pts: a.pts, canon: a.canon || null, how: a.how || null, done: a.done };
     if (withSheetInfo) {
       const q = BY_ID.get(a.qid);
-      if (q) {
-        const es = T.entries(q);
-        out.deepCuts = es.filter(e => e.tier === 'one').map(e => e.canon).slice(0, 8);
-        out.deepCuts2 = es.filter(e => e.tier === 'deep').map(e => e.canon).slice(0, 8);
-        out.sheetSize = es.length;
-      }
+      if (q) out.sheetSize = T.entries(q).length;   // the full sheet comes from POST /sheet on demand
     }
     return out;
   }
@@ -153,7 +153,8 @@ export function createGame(store, now = () => Date.now(), opts = {}) {
   function currentQuestion(dive) {
     const a = dive.answers[dive.answers.length - 1];
     if (!a || a.done) return null;
-    return { index: a.index, total: dive.qids.length, prompt: a.prompt, cat: a.cat, deadline: a.deadline, startedAt: a.startedAt, serverNow: now(), score: dive.score };
+    return { index: a.index, total: dive.qids.length, prompt: a.prompt, cat: a.cat, deadline: a.deadline, startedAt: a.startedAt, serverNow: now(), score: dive.score,
+      pending: a.pending || null };   // a correction waiting to be confirmed (shown again after a reload)
   }
 
   async function next(user) {
@@ -202,12 +203,26 @@ export function createGame(store, now = () => Date.now(), opts = {}) {
     if (!input) return { valid: false };
     const g = T.grade(BY_ID.get(a.qid), input);
     if (!g) {
-      if (a.misses.length < MAX_MISSES) { a.misses.push(input); await store.set(diveKey(dive.day, user), dive); }
-      return { valid: false };
+      if (a.misses.length < MAX_MISSES) a.misses.push(input);
+      if (SETTINGS.MISS_PENALTY_MS > 0) a.deadline = Math.max(now(), a.deadline - SETTINGS.MISS_PENALTY_MS);
+      await store.set(diveKey(dive.day, user), dive);
+      return { valid: false, deadline: a.deadline, serverNow: now() };
     }
-    Object.assign(a, { done: true, input, tier: g.tier, pts: g.pts, canon: g.canon, how: g.how, answeredAt: now() });
+    // A fuzzy match is shown first ("arabese -> Aranese, submit again to confirm"). The confirming
+    // submit carries the corrected text, which grades exact; the original typing is kept as `input`.
+    const pending = a.pending;
+    const confirmed = !!(pending && T.norm(input) === T.norm(pending.to));
+    if (SETTINGS.CONFIRM_CORRECTIONS && !confirmed && T.needsConfirm(g.how) && T.norm(input) !== T.norm(g.canon)) {
+      a.pending = { from: input, to: g.canon, how: g.how };
+      await store.set(diveKey(dive.day, user), dive);
+      return { valid: true, preview: true, from: input, correction: g.canon, how: g.how, deadline: a.deadline, serverNow: now() };
+    }
+    const typed = confirmed ? pending.from : input;
+    const how = confirmed ? pending.how : g.how;
+    delete a.pending;
+    Object.assign(a, { done: true, input: typed, tier: g.tier, pts: g.pts, canon: g.canon, how, answeredAt: now() });
     await saveDive(user, dive);
-    const res = { valid: true, tier: g.tier, tierName: T.TIERS[g.tier].name, pts: g.pts, canon: g.canon, how: g.how, score: dive.score, finished: dive.finished };
+    const res = { valid: true, tier: g.tier, tierName: T.TIERS[g.tier].name, pts: g.pts, canon: g.canon, how, score: dive.score, finished: dive.finished };
     warm(BY_ID.get(dive.qids[a.index + 1]));
     if (dive.finished) res.dive = summary(dive, true);
     return res;
@@ -245,6 +260,20 @@ export function createGame(store, now = () => Date.now(), opts = {}) {
     return { day, prompts: byQ };
   }
 
+  // One prompt's whole answer sheet (rarest first), for browsing after you've finished.
+  async function sheet(user, { index }) {
+    const dive = await store.get(diveKey(today(), user));
+    if (!dive || !dive.finished) throw err(403, 'Finish your dive to browse the answer sheets.');
+    const a = dive.answers[Number(index)];
+    const q = a && BY_ID.get(a.qid);
+    if (!q) throw err(404, 'That prompt isn’t in today’s dive.');
+    const rank = Object.fromEntries(T.TIER_ORDER.map((t, i) => [t, -i]));
+    const es = T.entries(q).slice().sort((x, y) => rank[x.tier] - rank[y.tier] || x.canon.localeCompare(y.canon));
+    const counts = {};
+    for (const e of es) counts[e.tier] = (counts[e.tier] || 0) + 1;
+    return { index: a.index, prompt: q.prompt, total: es.length, counts, answers: es.map(e => [e.canon, e.tier]) };
+  }
+
   async function leaderboard() {
     const keys = await store.list('scores/');
     const rows = (await Promise.all(keys.map(k => store.get(k)))).filter(Boolean);
@@ -266,12 +295,13 @@ export function createGame(store, now = () => Date.now(), opts = {}) {
       case 'POST /answer': return answer(await auth(token), body);
       case 'POST /timeout': return timeout(await auth(token), body);
       case 'GET /group': return group(await auth(token));
+      case 'POST /sheet': return sheet(await auth(token), body);
       case 'GET /leaderboard': await auth(token); return leaderboard();
       case 'GET /health': return { ok: true, prompts: BANK.length, today: today() };
       default: throw err(404, 'Not found');
     }
   }
-  return { handle, signup, login, auth, state, next, answer, timeout, group, leaderboard };
+  return { handle, signup, login, auth, state, next, answer, timeout, group, sheet, leaderboard };
 }
 
 /** Shared HTTP glue: Request -> Response (Netlify Functions v2 and the dev server both use it). */

@@ -124,5 +124,45 @@ reject('Name a language', 'Thigh');
 reject('Name a type of tea', 'Shua');
 reject('Name a mammal', 'chair');
 
+// --- most of the answer (Krillion: "united emirates" -> United Arab Emirates) ---
+accept('Name a country in Asia', 'united emirates', 'United Arab Emirates');
+accept('Name a country in Asia', 'arab emirates', 'United Arab Emirates');
+accept('Name a country in Asia', 'saudi', 'Saudi Arabia');                     // one distinctive word, unique on the sheet
+accept('Name a country in Europe', 'bosnia herzegovina', 'Bosnia and Herzegovina');
+accept('Name a US national park', 'Teton', 'Grand Teton');
+reject('Name a country in Asia', 'united');                                   // never a lone modifier
+reject('Name a country in Asia', 'arab');                                     // shared by several answers
+// --- bracketed disambiguators: the bare word is not the answer, the bracket words are needed ---
+const drink = T.q('Name a sport or game where you score by getting a ball into a hole or pocket',
+  'Golf; Pool/Billiards; Basketball', '', 'Bocce', 'Skee-Ball', 'Baseball (drinking game); Cornhole');
+const acceptQ = (q, input, canon) => { n++; const g = T.grade(q, input); if (!g || g.canon !== canon) { fails++; console.log(`FAIL accept  [${q.prompt.slice(0, 30)}] "${input}" -> ${g ? g.canon : 'null'} (want ${canon})`); } };
+const rejectQ = (q, input) => { n++; const g = T.grade(q, input); if (g) { fails++; console.log(`FAIL reject  [${q.prompt.slice(0, 30)}] "${input}" -> ${g.canon}`); } };
+rejectQ(drink, 'baseball');
+acceptQ(drink, 'baseball drinking', 'Baseball (drinking game)');
+acceptQ(drink, 'baseball drinking game', 'Baseball (drinking game)');
+acceptQ(drink, 'Baseball (drinking game)', 'Baseball (drinking game)');
+acceptQ(drink, 'skeeball', 'Skee-Ball');
+// --- British / American spellings, short-word typos, ties ---
+accept('Name a color', 'grey', 'Gray');
+accept('Name a chemical element', 'aluminium', 'Aluminum');
+accept('Name a chemical element', 'sulphur', 'Sulfur');
+accept('Name a country in Africa', 'keny', 'Kenya');                        // 4 letters, one slip, not a real word
+accept('Name a country in Asia', 'indi', 'India');
+accept('Name a chemical element', 'putoium', 'Plutonium');                  // two slips, budget from the longer spelling
+accept('Name a college football program', 'georgiaa State', 'Georgia State'); // tie broken by the words typed
+accept('Name a chess opening', 'Fried Liver attak', 'Fried Liver Attack');
+reject('Name a fruit', 'chai');                                              // 4 letters but a real word: no guessing
+accept('Name a dog breed', 'boxes', 'Boxer');                                // Krillion: a real word may be one slip from an answer ("bones" -> Bonus)
+// --- match kinds: what the player is asked to confirm ---
+const how = (prompt, input) => { n++; const g = T.grade(P(prompt), input); return g ? g.how : null; };
+const expectHow = (prompt, input, want) => { const got = how(prompt, input); if (got !== want) { fails++; console.log(`FAIL how     [${prompt}] "${input}" -> ${got} (want ${want})`); } };
+expectHow('Name a country in Europe', 'France', 'exact');
+expectHow('Name a country in Europe', 'the netherlands', 'exact');           // listed alias: no confirmation
+expectHow('Name a fruit', 'strawberries', 'loose');                           // plural: no confirmation
+expectHow('Name a country in Europe', 'Liechtenstien', 'sound');             // sound-alike beats typo when both fit
+expectHow('Name a US president', 'pierce', 'name');                           // surname: confirm which person
+expectHow('Name a country in Asia', 'united emirates', 'missing');
+if (T.needsConfirm('loose') || T.needsConfirm('exact') || !T.needsConfirm('typo') || !T.needsConfirm('sound') || !T.needsConfirm('name')) { fails++; console.log('FAIL needsConfirm'); }
+
 console.log(`\n${n - fails}/${n} passed`);
 process.exit(fails ? 1 : 0);

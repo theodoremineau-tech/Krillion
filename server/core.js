@@ -86,10 +86,28 @@
     return s;
   }
 
+  // British and American spellings compare equal (both sides go through this, so the mapped form
+  // only has to be consistent, not correct): colour/color, centre/center, organise/organize, grey/gray.
+  const SPELLING = { grey: 'gray', tyre: 'tire', tyres: 'tires', kerb: 'curb', mould: 'mold', plough: 'plow', cheque: 'check', draught: 'draft',
+    pyjamas: 'pajamas', sulphur: 'sulfur', programme: 'program', omelette: 'omelet', yoghurt: 'yogurt', doughnut: 'donut', doughnuts: 'donuts',
+    jewellery: 'jewelry', aluminium: 'aluminum', whisky: 'whiskey', liquorice: 'licorice', mum: 'mom', pyjama: 'pajama', aeroplane: 'airplane',
+    axe: 'ax', catalogue: 'catalog', dialogue: 'dialog', manoeuvre: 'maneuver', storey: 'story', cosy: 'cozy', sceptic: 'skeptic', defence: 'defense',
+    offence: 'offense', licence: 'license', practise: 'practice', ageing: 'aging', enquiry: 'inquiry', pedlar: 'peddler', tsar: 'czar', tzar: 'czar' };
+  function spelling(t) {
+    if (SPELLING[t]) return SPELLING[t];
+    if (t.length < 6 || /\d/.test(t)) return t;
+    return t
+      .replace(/([bcdfghjklmnpqrstvwxz])our(s?)$/, '$1or$2')   // colour, flavour, harbour (not four, hour, tour)
+      .replace(/([bt])re(s?)$/, '$1er$2')                      // centre, theatre, litre, fibre, sabre
+      .replace(/is(e|ed|es|ing|ation|ations)$/, 'iz$1')        // organise, recognised, realisation
+      .replace(/ys(e|ed|es|ing)$/, 'yz$1')                     // analyse, paralysed
+      .replace(/ogue(s?)$/, 'og$1')                            // catalogue, analogue
+      .replace(/ll(ed|ing|er)$/, 'l$1');                       // travelled, modelling, traveller
+  }
   function tokens(s) {
     const n = norm(s);
     if (!n) return [];
-    return n.split(' ').map(t => NUMBER_WORDS[t] || TOKEN_MAP[t] || t);
+    return n.split(' ').map(t => NUMBER_WORDS[t] || TOKEN_MAP[t] || spelling(t));
   }
   function strip(toks, set, extra) {
     const out = toks.filter(t => !set.has(t) && !(extra && extra.has(t)));
@@ -117,7 +135,10 @@
       compact: l2.join(''),
       compact1: l1.join(''),
       raw: f2.join(''),          // unstemmed: typo budgets and sound keys use the full spelling
+      raw1: f1.join(''),         // same, with category words kept ("friedliverattack")
       toks: l2,
+      toks1: l1,
+      all: t0,                   // every word as typed: used to break ties ("Georgia State" over "Georgia")
     };
   }
 
@@ -242,6 +263,15 @@
     }
   }
 
+  /** Stemmed words inside brackets: "Baseball (drinking game)" -> {drinking, game}. Null when none. */
+  function requiredTokens(form) {
+    const m = String(form).match(/\(([^)]+)\)/g);
+    if (!m) return null;
+    const req = new Set();
+    for (const part of m) for (const t of tokens(part.slice(1, -1))) req.add(stem(t));
+    return req.size ? req : null;
+  }
+
   const AMBIG = { ambiguous: true };
   function put(map, key, val) {
     if (!key) return;
@@ -277,10 +307,13 @@
     const all = entries(question);
     // Category words only count as droppable when this prompt actually uses them
     // ("dog" for dog breeds, "airlines" for airlines), so "Hawaiian roll" never becomes "Hawaiian".
-    const vocab = new Set(tokens(question.prompt));
+    const promptWords = tokens(question.prompt);
+    const vocab = new Set(promptWords);
     for (const e of all) for (const f of e.forms) for (const t of tokens(f)) vocab.add(t);
     const soft = new Set([...SOFT].filter(w => vocab.has(w)));
-    const idx = { exact: new Map(), loose: new Map(), looser: new Map(), compact: new Map(), sorted: new Map(), phon: new Map(),
+    // the prompt's own words are optional too (Krillion: "Makeup" counts for "Makeup brush" on "Name a type of brush")
+    for (const w of promptWords) if (w.length >= 4 && w !== 'name' && !NO_SOLO_TOKEN.has(w) && vocab.has(w)) soft.add(w);
+    const idx = { exact: new Map(), names: new Map(), loose: new Map(), looser: new Map(), compact: new Map(), sorted: new Map(), phon: new Map(),
       token: new Map(), keys: [], extra, soft };
     // exact forms first; an exact form always beats a looser collision
     for (const e of all) for (const f of e.forms) { const k = norm(f); if (k && !idx.exact.has(k)) idx.exact.set(k, e); }
@@ -290,6 +323,9 @@
       for (const f of e.forms) {
         const k = keysFor(f, extra, soft);
         if (!k) continue;
+        // "Baseball (drinking game)": the bracketed part tells the answer apart from a plain
+        // "baseball" that isn't on this sheet, so a partial answer must include one of those words
+        const req = requiredTokens(f);
         put(idx.loose, k.loose, e);
         put(idx.looser, k.looser, e);
         put(idx.compact, k.compact, e);
@@ -300,14 +336,18 @@
         if (k.raw.length >= (e.auto ? 6 : 5)) {
           const pk = phon(k.raw);
           const list = idx.phon.get(pk) || [];
-          if (!list.some(x => x.e === e)) list.push({ e, raw: k.raw });
+          if (!list.some(x => x.e === e)) list.push({ e, raw: k.raw, key: { all: k.all } });
           idx.phon.set(pk, list);
         }
         const sig = e.canon + '|' + k.compact;
-        if (k.compact.length >= 3 && !seenKey.has(sig)) { seenKey.add(sig); idx.keys.push({ c: k.compact, r: k.raw, toks: k.toks, e, auto: e.auto }); }
+        if (k.compact.length >= 3 && !seenKey.has(sig)) { seenKey.add(sig); idx.keys.push({ c: k.compact, r: k.raw, toks: k.toks, all: k.all, e, auto: e.auto, req }); }
+        // the form with its category word kept, so "Fried Liver attak" can reach "Fried Liver Attack"
+        const sig1 = e.canon + '|' + k.compact1;
+        if (k.compact1 !== k.compact && !seenKey.has(sig1)) { seenKey.add(sig1); idx.keys.push({ c: k.compact1, r: k.raw1, toks: k.toks1, all: k.all, e, auto: e.auto, req, full: true }); }
         if (k.toks.length > 1 && k.toks.length <= 4) {
           for (const t of k.toks) {
             if (t.length < 4 || NO_SOLO_TOKEN.has(t) || /^\d+$/.test(t)) continue;
+            if (req && !req.has(t)) continue;
             // "West Virginia" must not answer for "Virginia": a bare direction/"new" prefix makes a different place
             if (k.toks.some(o => o !== t && DIRECTIONAL.has(o))) continue;
             if (!tokenOwners.has(t)) tokenOwners.set(t, new Set());
@@ -343,16 +383,18 @@
         return a && a !== AMBIG ? a : null;
       };
       const keysOf = m => new Set([...m[0].keys(), ...m[1].keys()]);
+      // these land in idx.names (not idx.exact) so the match reports how: 'name' and the
+      // player can be shown "roosevelt -> Franklin D. Roosevelt" before it locks in
       for (const l of keysOf(maps.last)) {
         const e = pickName(maps.last[0], maps.last[1], l);
         if (e && !idx.exact.has(l) && l.length >= 3) {
-          idx.exact.set(l, e);
+          idx.names.set(l, e);
           if (l.length >= 4) idx.keys.push({ c: l, r: l, toks: [l], e, surname: true, auto: e.auto });
         }
       }
       for (const f of keysOf(maps.first)) {
         const e = pickName(maps.first[0], maps.first[1], f);
-        if (e && !e.auto && !idx.exact.has(f) && f.length >= 4) idx.exact.set(f, e);
+        if (e && !e.auto && !idx.exact.has(f) && !idx.names.has(f) && f.length >= 4) idx.names.set(f, e);
       }
     }
     question._index = idx;
@@ -362,16 +404,30 @@
   function result(e, how) {
     return { tier: e.tier, pts: TIERS[e.tier].pts, canon: e.canon, how, fuzzy: how !== 'exact' };
   }
+  // Match kinds the player should confirm before they lock in (Krillion's "x -> y, submit again").
+  // 'loose' is left out: plurals, spacing, "Mount"/"the" and aliases are the same answer, not a guess.
+  const CONFIRM_HOW = new Set(['typo', 'sound', 'words', 'extra words', 'partial', 'missing', 'name']);
+  const needsConfirm = how => CONFIRM_HOW.has(how);
 
-  // typo allowance: roughly one slip per four letters
-  function typoBudget(len) {
-    if (len < 5) return 0;
+  // typo allowance: roughly one slip per four letters. `lenient` lets a 4-letter non-word
+  // ("keny", "indi") be one slip from a 5-letter answer.
+  function typoBudget(len, lenient) {
+    if (len < 4) return 0;
+    if (len < 5) return lenient ? 1 : 0;
     if (len < 8) return 1;
     if (len < 12) return 2;
     if (len < 16) return 3;
-    return 4;
+    if (len < 20) return 4;
+    return 5;
   }
   function tokenBudget(len) { return len < 4 ? 0 : len < 8 ? 1 : 2; }
+
+  /** True when every word of `part` appears in `whole`, in the same order (gaps allowed). */
+  function isSubsequence(part, whole) {
+    let j = 0;
+    for (const t of whole) if (j < part.length && part[j] === t) j++;
+    return j === part.length;
+  }
 
   /** Every input token pairs with a different answer token, each within its own typo budget.
    *  Returns the summed distance, or -1. Order doesn't matter. */
@@ -406,6 +462,8 @@
     if (!ex) return null;
     let hit = idx.exact.get(ex);
     if (hit) return result(hit, 'exact');
+    hit = idx.names.get(ex);
+    if (hit) return result(hit, 'name');
     const k = keysFor(input, idx.extra, idx.soft);
     if (!k) return null;
     const rawIn = ex.replace(/ /g, '').replace(/^the(?=.{4})/, '');
@@ -415,48 +473,70 @@
       if (hit && hit !== AMBIG) return result(hit, 'loose');
     }
     if (idx.exact.has(k.loose)) return result(idx.exact.get(k.loose), 'loose');
+    if (idx.names.has(k.loose)) return result(idx.names.get(k.loose), 'name');
     if (k.toks.length > 1) {
       hit = idx.sorted.get(k.toks.slice().sort().join(' '));
       if (hit && hit !== AMBIG) return result(hit, 'loose');
     }
-    // one distinctive word ("Teton" -> "Grand Teton")
-    if (k.toks.length === 1 && k.compact.length >= 4 && (globalTokenFreq().get(k.toks[0]) || 0) <= 2) {
-      hit = idx.token.get(k.toks[0]);
-      if (hit && hit !== AMBIG) return result(hit, 'partial');
+    const W = root.TRENCH_WORDS;
+    const realWord = t => W && W.has(t);
+    // one distinctive word ("Teton" -> "Grand Teton", "Saudi" -> "Saudi Arabia"): it must belong to
+    // exactly one answer on this sheet, and be either uncommon across the bank or not an everyday word
+    if (k.toks.length === 1 && k.compact.length >= 4) {
+      const t = k.toks[0];
+      const freq = globalTokenFreq().get(t) || 0;
+      hit = idx.token.get(t);
+      if (hit && hit !== AMBIG) {
+        // dataset answers keep the strict rule (the big lists are where "kafka" -> Ashley Kafka lives)
+        const ok = hit.auto ? freq <= 2 : (!realWord(t) || (freq <= 6 && t.length >= 5));
+        if (ok) return result(hit, 'partial');
+      }
     }
 
     // ---- scored candidates ----
     const c = k.compact, r = k.raw;
     const cands = [];
-    const add = (e, cost, how) => cands.push({ e, cost, how });
+    let curKey = null;
+    const add = (e, cost, how) => cands.push({ e, cost, how, key: curKey });
     const p = r.length >= 5 ? phon(r) : '';
-    for (const { e, raw: target } of (p.length >= 4 && idx.phon.get(p)) || []) {
+    for (const { e, raw: target, key: pk } of (p.length >= 4 && idx.phon.get(p)) || []) {
       // sounds the same and is still recognisably the same spelling
       const lim = Math.max(2, Math.ceil(target.length / 3));
       if (!sameStart(r, target)) continue;
       const d = dist(r, target, lim);
+      curKey = pk || null;
       if (d <= lim) add(e, 0.6 + d / 10, 'sound');
     }
-    const budget = typoBudget(r.length);
-    const W = root.TRENCH_WORDS;
-    const realWord = t => W && W.has(t);
     // a real word isn't a typo of a different real word ("monkey" vs "money")
     const realSwap = (a, b) => a !== b && realWord(a) && realWord(b);
+    const lenient = k.toks.length === 1 && r.length >= 4 && !realWord(r);
     const allowedExtra = idx.extraOk || (idx.extraOk = new Set([...FILLER, ...SOFT, ...tokens(question.prompt), 'famous', 'my', 'answer', 'player', 'team', 'group', 'brand', 'type', 'kind']));
     for (const key of idx.keys) {
       const kc = key.c;
-      // whole-answer typo distance
-      if (budget) {
-        // generated deep-list answers get a tighter allowance so stray words don't land on an
-        // obscure entry: one slip from 6 letters, two from 10
-        const kr = key.r || kc;
-        const b = key.auto ? Math.min(budget, kr.length >= 10 ? 2 : kr.length >= 6 ? 1 : 0) : Math.min(budget, typoBudget(kr.length));
-        if (b && sameStart(r, kr)) {
-          const d = Math.min(dist(r, kr, b), dist(c, kc, b));
-          if (d <= b && !(k.toks.length === 1 && key.toks.length === 1 && realSwap(r, kr))) add(key.e, d + (r[0] === kr[0] ? 0 : 0.5), 'typo');
-        }
+      curKey = key;
+      // Whole-answer edit distance, Krillion-style: about one slip per four letters of the longer
+      // spelling, the first letter included ("pasketball" -> Basketball), so a dropped word inside a
+      // long answer also fits ("united emirates" -> United Arab Emirates).
+      const kr = key.r || kc;
+      const longer = Math.max(r.length, kr.length);
+      // generated deep-list answers get a tighter allowance so stray words don't land on an
+      // obscure entry: one slip from 6 letters, two from 10
+      const b = key.auto ? (longer >= 10 ? 2 : longer >= 6 ? 1 : 0) : typoBudget(longer, lenient);
+      // a whole extra tail or head of three or more letters isn't a typo ("Kryptonite" is not "Krypton", "Mini" is not "Mini golf")
+      const ext = (r.startsWith(kr) || kr.startsWith(r)) ? Math.abs(r.length - kr.length) : 0;
+      // a wrong first letter is fine in a non-word ("pasketball"); a real word must at least start
+      // right, or "chad" would offer Hades and "vandal" Sandals
+      if (b && ext < 3 && (sameStart(r, kr) || !realWord(r))) {
+        // measured on the full spelling: plurals are already handled by the stemmed lookups above,
+        // and comparing stems here let "slo" reach Shoes via "sho"
+        const d = dist(r, kr, b);
+        // Krillion offers "bones" -> Bonus and "fitter" -> Filter, so a real word may be ONE slip from
+        // a hand-written answer once it has 5+ letters; the guard stays for two slips ("baseball" is
+        // not Basketball), 4-letter words, and the big dataset lists ("monkey" is not some obscure Money)
+        const guard = k.toks.length === 1 && key.toks.length === 1 && (key.auto || r.length < 5 || d > 1) && realSwap(r, kr);
+        if (d <= b && !guard) add(key.e, d + (r[0] === kr[0] ? 0 : 0.5), 'typo');
       }
-      if (key.surname) continue;
+      if (key.surname || key.full) continue;
       // word-by-word: any order, small typos inside each word
       if (k.toks.length > 1 && key.toks.length === k.toks.length) {
         const d = tokensMatch(k.toks, key.toks);
@@ -469,9 +549,21 @@
         const d = tokensMatch(key.toks, k.toks);
         if (d === 0 || (d === 1 && kc.length >= 8 && !key.auto)) add(key.e, d + 1.5, 'extra words');
       }
+      // most of the answer, in order ("united emirates" -> United Arab Emirates, "baseball drinking"
+      // -> Baseball (drinking game)): at least two words, at least half of the answer's words, every
+      // typed word somewhere in the answer, and one of the bracketed words when the answer has them
+      if (k.toks.length >= 2 && key.toks.length > k.toks.length && k.toks.length * 2 >= key.toks.length &&
+          isSubsequence(k.toks, key.toks) && k.toks.some(t => t.length >= 4 && !NO_SOLO_TOKEN.has(t)) &&
+          (!key.req || k.toks.some(t => key.req.has(t)))) {
+        add(key.e, 1.2 + (key.toks.length - k.toks.length) / key.toks.length, 'missing');
+      }
     }
     if (!cands.length) return null;
-    cands.sort((x, y) => x.cost - y.cost || TIERS[x.e.tier].pts - TIERS[y.e.tier].pts);
+    // cheapest wins; at a tie, the answer that contains more of the typed words ("georgiaa state"
+    // -> Georgia State, not Georgia), then the lower-scoring answer
+    const overlap = cand => { const words = new Set(cand.all || []); return k.all.filter(t => words.has(t)).length; };
+    for (const cnd of cands) cnd.ov = overlap(cnd.key || {});
+    cands.sort((x, y) => x.cost - y.cost || y.ov - x.ov || TIERS[x.e.tier].pts - TIERS[y.e.tier].pts);
     return result(cands[0].e, cands[0].how);
   }
 
@@ -536,7 +628,7 @@
 
   const api = {
     TIERS, TIER_ORDER, MAX_PTS, MAX_DEPTH_M, M_PER_PT, ZONES,
-    norm, keysFor, phon, q, add, more, extend, grade, buildIndex, warm, entries, hash, dist,
+    norm, keysFor, phon, q, add, more, extend, grade, needsConfirm, buildIndex, warm, entries, hash, dist,
     todayStr, dayIndex, addDays, pickDaily,
     depthFor, zoneFor,
   };

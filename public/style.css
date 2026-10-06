@@ -219,6 +219,15 @@ p { margin: .35em 0; }
 .result-slot { margin: -4px 0 14px; }
 .prompt-card.timed-out .prompt, .prompt-card.timed-out .air { filter: saturate(.25) brightness(.85); }
 
+/* correction pill: "“arabese” → “Aranese”  Submit again to confirm, or edit" */
+.correction { display: grid; justify-items: center; gap: 4px; text-align: center; padding: 12px 14px; border-radius: var(--r-md); background: rgba(0, 0, 0, .3); border: 1px solid rgba(111, 242, 196, .35); animation: rise .22s ease both; }
+.corr-change { font-size: 1.1rem; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; align-items: baseline; }
+.corr-from { color: var(--ink-2); font-weight: 500; }
+.corr-arrow { color: var(--ink-3); }
+.corr-to { color: var(--bio); font-weight: 700; }
+.corr-hint { font-size: .82rem; color: var(--ink-3); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
 /* reveal stamp */
 .stamp { display: grid; justify-items: center; text-align: center; gap: 4px; padding: 4px 0 2px; }
 .stamp-tier { font-size: clamp(1.7rem, 8vw, 2.6rem); font-weight: 800; line-height: 1; transform: scale(2.6) rotate(-6deg); opacity: 0; }
@@ -276,9 +285,29 @@ body.flash-one::after { content: ''; position: fixed; inset: 0; z-index: 28; poi
 .rev-body { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 0 2.1rem; }
 .rev-you { font-weight: 600; }
 .rev-you.dim, .rev-canon { color: var(--ink-3); font-weight: 400; }
-details.deep { margin: 8px 0 0 2.1rem; }
-details.deep summary { cursor: pointer; color: var(--ink-2); font-size: .88rem; }
-details.deep p { font-size: .9rem; color: var(--ink-2); margin: 6px 0; }
+.browse { display: inline-block; margin: 6px 0 0 2.1rem; font-size: .88rem; }
+
+/* answer sheet browser */
+.sheet-card { max-width: 560px; max-height: 88dvh; overflow: auto; padding: 16px 18px 14px; }
+.sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.sheet-q { font-weight: 700; margin: 4px 0; }
+.sheet-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.schip { appearance: none; border: 0; cursor: pointer; padding: .28rem .7rem; border-radius: 999px; font-size: .8rem; font-weight: 700; background: rgba(255, 255, 255, .08); color: var(--ink-2); box-shadow: inset 0 0 0 1.5px var(--line); }
+.schip.on { color: #04161f; background: var(--ink); box-shadow: none; }
+.schip.one.on { background: var(--t-one); color: #fff; } .schip.deep.on { background: var(--t-deep); } .schip.rare.on { background: var(--t-rare); }
+.schip.schooler.on { background: var(--t-schooler); } .schip.clever.on { background: var(--t-clever); } .schip.plankton.on { background: var(--t-plankton); }
+.sheet-search { width: 100%; padding: .7rem .9rem; border-radius: var(--r-sm); border: 1.5px solid var(--line); background: rgba(3, 20, 30, .35); font-size: 1rem; margin-bottom: 8px; }
+.sheet-search:focus { border-color: var(--bio); outline: none; }
+.sheet-list { list-style: none; margin: 0; padding: 0; }
+.sheet-list li { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; padding: 8px 2px; border-bottom: 1px solid var(--line); font-size: .95rem; }
+.sheet-list li:last-child { border-bottom: 0; }
+.sheet-list li.picked .sheet-ans { color: var(--hull); font-weight: 700; }
+.sheet-who { color: var(--ink-3); font-weight: 500; font-size: .85rem; }
+.sheet-pts { font-family: var(--display); font-weight: 600; font-size: .85rem; color: var(--ink-3); }
+.sheet-pts.one { color: var(--t-one); } .sheet-pts.deep { color: var(--t-deep); } .sheet-pts.rare { color: var(--t-rare); }
+.sheet-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 8px; }
+.sheet-pager { display: flex; gap: 8px; }
+.sheet-pager .link-btn:disabled { opacity: .4; cursor: default; text-decoration: none; }
 .crew-list { list-style: none; margin: 8px 0 0 2.1rem; padding: 8px 12px; background: rgba(0, 0, 0, .18); border-radius: var(--r-sm); display: grid; gap: 6px; }
 .crew-list li { display: grid; grid-template-columns: minmax(4rem, auto) auto 1fr; gap: 8px; align-items: center; font-size: .9rem; }
 .crew-name { font-weight: 700; color: var(--ink-2); }
